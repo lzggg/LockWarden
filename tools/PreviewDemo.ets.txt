@@ -1,0 +1,80 @@
+/**
+ * 预览专用页面 —— DevEco Studio Previewer 用。
+ *
+ * 为什么单独一页：预览器只内置 preferences / fs / http / util 等少量系统模块，
+ * **没有 security（cryptoFramework）和 pasteboard**。真实入口 pages/Index 会静态导入
+ * VaultStore → BitwardenCrypto → cryptoFramework，在预览器里加载即失败，
+ * IDE 只会给出笼统的「预览失败：不支持或编译错误」。
+ *
+ * 本页复用同一个 MainShell（同样的底部四个 Tab、列表、详情、编辑器、回收站），
+ * 但数据与能力全部注入，不触碰任何原生模块，因此可以完整预览。
+ */
+import { VaultItem, VaultFolder } from '../common/Models';
+import { demoItems, demoFolders } from '../common/DemoData';
+import { Theme } from '../common/Theme';
+import { BackBus } from '../common/BackBus';
+import { MainShell } from '../view/MainShell';
+
+@Entry
+@Component
+struct PreviewDemo {
+  @State items: VaultItem[] = demoItems();
+  @State folders: VaultFolder[] = demoFolders();
+
+  /** 预览里也保持"侧滑返回上一层"的行为 */
+  onBackPress(): boolean {
+    return BackBus.dispatch();
+  }
+
+  build() {
+    Column() {
+      MainShell({
+        items: this.items,
+        trash: [],
+        folders: this.folders,
+        email: 'demo@vaultwarden.local',
+        server: 'https://vault.example.com',
+        syncAt: Date.now(),
+        syncing: false,
+        demo: true,
+        iterations: 600000,
+        autoLockMinutes: 5,
+        random: (bound: number) => Math.floor(Math.random() * bound),
+        onSync: () => {
+        },
+        onLock: () => {
+        },
+        onSignOut: () => {
+        },
+        onCopy: (label: string, value: string) => {
+          this.getUIContext().getPromptAction().showToast({
+            message: `预览模式：${label} ${value}`,
+            duration: 1800
+          });
+        },
+        onSaveDraft: async () => {
+          throw new Error('预览模式下不能保存条目');
+        },
+        onDelete: async () => {
+          throw new Error('预览模式下不能删除');
+        },
+        onRestore: async () => {
+          throw new Error('预览模式下不能恢复');
+        },
+        onPurge: async () => {
+          throw new Error('预览模式下不能删除');
+        },
+        onToggleFavorite: async () => {
+        },
+        onAutoLock: () => {
+        },
+        onCreateFolder: async () => {
+          throw new Error('预览模式下不能新建文件夹');
+        }
+      })
+    }
+    .width('100%')
+    .height('100%')
+    .backgroundColor(Theme.BACKGROUND)
+  }
+}
