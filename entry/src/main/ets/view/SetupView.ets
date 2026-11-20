@@ -4,6 +4,7 @@
  * 因此地址写错会立刻暴露，而不是等到登录时才报错。
  */
 import { Theme } from '../common/Theme';
+import { CertPinning, CERT_CHANGED_PREFIX } from '../common/CertPinning';
 import { Icons } from '../common/Icons';
 import { VaultStore } from '../common/VaultStore';
 
@@ -32,17 +33,20 @@ export struct SetupView {
     this.email = this.initialEmail;
   }
 
-  /** 统一成 https:// 开头的地址：没写协议自动补 https，末尾斜杠去掉 */
+  /** 统一成 https:// 开头的地址：没写协议自动补 https，末尾斜杠去掉；不接受明文 http */
   private normalizedServer(): string {
     let text: string = this.server.trim();
     if (text.length === 0) {
       throw new Error('请填写服务器地址');
     }
-    if (!/^https?:\/\//i.test(text)) {
+    if (/^http:\/\//i.test(text)) {
+      throw new Error('只支持 https:// 连接，请把地址改成 https:// 开头');
+    }
+    if (!/^https:\/\//i.test(text)) {
       text = `https://${text}`;
     }
     // 只有协议没有主机：先在去掉斜杠前判断，否则 https:// 会被裁成 https:
-    if (/^https?:\/\/\s*$/i.test(text)) {
+    if (/^https:\/\/\s*$/i.test(text)) {
       throw new Error('请补全服务器地址，例如 https://vault.example.com');
     }
     text = text.replace(/\/+$/, '');
@@ -68,10 +72,44 @@ export struct SetupView {
       });
       this.onReady(server, this.email);
     } catch (e) {
-      this.error = (e as Error).message;
+      const message: string = (e as Error).message;
+      if (message.startsWith(CERT_CHANGED_PREFIX)) {
+        this.handleCertChanged(message);
+      } else {
+        this.error = message;
+      }
     } finally {
       this.busy = false;
     }
+  }
+
+  /** 证书指纹和上次记录的不一致：让用户确认是换证书还是被劫持 */
+  private handleCertChanged(message: string): void {
+    const parts: string[] = message.split('|');
+    const oldPin: string = parts.length > 2 ? parts[2] : '';
+    const newPin: string = parts.length > 3 ? parts[3] : '';
+    this.error = '服务器证书已变化，请确认';
+    this.getUIContext().showAlertDialog({
+      title: '服务器证书已变化',
+      message: `上次记录的指纹：${oldPin}…\n这次：${newPin}…\n\n如果确实是你更换了服务器证书，可以点「信任新证书」；否则请取消并检查当前网络（可能是中间人攻击）。`,
+      autoCancel: true,
+      primaryButton: {
+        value: '取消',
+        action: () => {
+        }
+      },
+      secondaryButton: {
+        value: '信任新证书',
+        fontColor: Theme.DANGER,
+        action: () => {
+          const server: string = this.normalizedServer();
+          CertPinning.trust(server).then(() => {
+            this.submit();
+          }).catch(() => {
+          });
+        }
+      }
+    });
   }
 
   build() {
@@ -121,7 +159,7 @@ export struct SetupView {
           .onChange((value: string) => {
             this.server = value;
           })
-        Text('默认以 https:// 开头；不写协议会自动补全，局域网可用 http://192.168.1.100:8222')
+        Text('必须使用 https:// 连接；不写协议会自动补全。自建服务器请先配好 HTTPS 证书。')
           .fontSize(12)
           .fontColor(Theme.TEXT_HINT)
           .width('100%')

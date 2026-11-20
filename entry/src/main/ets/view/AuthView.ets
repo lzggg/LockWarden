@@ -32,25 +32,7 @@ export struct AuthView {
   /** 正在验证的生物识别类型：'' 表示空闲 */
   @State bioKind: string = '';
 
-  aboutToAppear(): void {
-    if (this.mode !== 'unlock') {
-      return;
-    }
-    // 只开了一种就直接用它；两种都开则让用户自己选，不默认指纹。
-    // 延时一是错开启动瞬间窗口未拿到焦点的竞态，二是确保此时 @Prop 已全部就绪
-    // （在回调里读 this.*，不要用 aboutToAppear 时捕获的常量）。
-    setTimeout(() => {
-      const fingerprintOn: boolean = this.bioFingerprint;
-      const faceOn: boolean = this.bioFace;
-      if (fingerprintOn && !faceOn) {
-        this.biometricUnlock('fingerprint');
-      } else if (faceOn && !fingerprintOn) {
-        this.biometricUnlock('face');
-      }
-    }, 500);
-  }
-
-  /** 生物识别解锁：kind = 'fingerprint' | 'face' */
+  /** 生物识别解锁：kind = 'fingerprint' | 'face'。只由用户点击按钮触发，不再自动弹出 */
   private async biometricUnlock(kind: string): Promise<void> {
     if (this.bioKind.length > 0 || this.busy) {
       return;
@@ -107,7 +89,7 @@ export struct AuthView {
       const message: string = errorMessage(e);
       this.error = message;
       // 页内红字 + 弹窗双重提示：主密码错误这类问题必须让用户明确看到
-      AlertDialog.show({
+      this.getUIContext().showAlertDialog({
         title: this.mode === 'login' ? '无法登录' : '无法解锁',
         message: message,
         autoCancel: true,

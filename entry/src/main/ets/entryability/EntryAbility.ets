@@ -4,6 +4,7 @@ import { window } from '@kit.ArkUI';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { ThemeMode } from '../common/ThemeMode';
 import { WindowStyle } from '../common/WindowStyle';
+import { clearIfExpired } from '../common/Clipboard';
 
 const DOMAIN: number = 0x0001;
 const TAG: string = 'LockWarden';
@@ -44,6 +45,8 @@ export default class EntryAbility extends UIAbility {
 
   onForeground(): void {
     hilog.info(DOMAIN, TAG, '%{public}s', 'Ability onForeground');
+    // 后台时定时器可能被挂起：回到前台补一次「剪贴板到期清除」
+    clearIfExpired();
   }
 
   onBackground(): void {

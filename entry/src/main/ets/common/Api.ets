@@ -45,13 +45,17 @@ export function errorMessage(e: Object): string {
   return text === '{}' ? '操作失败，请稍后重试' : text;
 }
 
-/** 统一整理服务器地址：补协议、去尾部斜杠 */
+/** 统一整理服务器地址：补协议、去尾部斜杠；只接受 https（明文 http 会被拒绝） */
 export function normalizeServer(input: string): string {
   let server: string = input.trim();
   if (server.length === 0) {
     throw new Error('请填写服务器地址');
   }
-  if (!server.toLowerCase().startsWith('http://') && !server.toLowerCase().startsWith('https://')) {
+  const lower: string = server.toLowerCase();
+  if (lower.startsWith('http://')) {
+    throw new Error('只支持 https:// 连接，请把地址改成 https:// 开头');
+  }
+  if (!lower.startsWith('https://')) {
     server = `https://${server}`;
   }
   while (server.endsWith('/')) {

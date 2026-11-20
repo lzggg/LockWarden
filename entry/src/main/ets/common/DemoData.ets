@@ -2,9 +2,8 @@
  * 演示数据：不连接任何服务器也能看到完整界面与交互。
  * 仅用于 UI 预览 / 首次体验，数据不加密、不落盘、不联网。
  *
- * 其中「公司 VPN」带一个可用的示例 TOTP 密钥（Base32: JBSWY3DPEHPK3PXP，
- * 即各家验证器文档里通用的示例种子），详情页会显示每 30 秒刷新的 6 位动态码。
- * 这里所有账号、口令、卡号均为虚构占位，不对应任何真实账号。
+ * 其中「公司 VPN」带一个真实可用的 TOTP 密钥（Base32: JBSWY3DPEHPK3PXP），
+ * 详情页会显示每 30 秒刷新的 6 位动态码。
  */
 import { VaultItem, VaultFolder } from './Models';
 
@@ -28,10 +27,10 @@ export function demoItems(): VaultItem[] {
       id: 'demo-2',
       type: 1,
       name: '公司 VPN',
-      username: 'demo.user',
+      username: 'zhang.wei',
       password: 'Vpn@2026#Corp',
       totp: 'JBSWY3DPEHPK3PXP',
-      uri: 'vpn.example.com',
+      uri: 'vpn.example-corp.com',
       notes: '连接前先确认 TOTP 验证码。',
       favorite: true,
       folderId: 'f-2',
@@ -42,7 +41,7 @@ export function demoItems(): VaultItem[] {
       id: 'demo-3',
       type: 1,
       name: '阿里云控制台',
-      username: '138 0000 0000',
+      username: '13800000000',
       password: 'Aliyun+2026/Secure',
       totp: '',
       uri: 'https://account.aliyun.com',
@@ -56,7 +55,7 @@ export function demoItems(): VaultItem[] {
       id: 'demo-4',
       type: 1,
       name: 'Notion',
-      username: 'demo@example.com',
+      username: 'zhangwei@example.com',
       password: 'N0tion-Docs-2026',
       totp: '',
       uri: 'https://www.notion.so',
@@ -70,8 +69,8 @@ export function demoItems(): VaultItem[] {
       id: 'demo-5',
       type: 3,
       name: '招商银行储蓄卡',
-      username: '演示用户',
-      password: '4111 1111 1111 1111',
+      username: '张三',
+      password: '6225 8800 1234 5678',
       totp: '',
       uri: '',
       notes: '有效期 09/29，CVV 已脱敏。',
@@ -101,7 +100,7 @@ export function demoItems(): VaultItem[] {
       username: 'legacy-bot',
       password: 'deprecated',
       totp: '',
-      uri: 'http://legacy.example.com:8080',
+      uri: 'http://10.0.0.12:8080',
       notes: '这条用于展示「无法解密」状态。',
       favorite: false,
       folderId: '',

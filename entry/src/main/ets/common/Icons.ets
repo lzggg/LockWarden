@@ -65,6 +65,8 @@ export class Icons {
   static readonly privacy: Resource = $r('sys.symbol.camera_slash');
   static readonly edit: Resource = $r('sys.symbol.square_and_pencil');
   static readonly lockOpen: Resource = $r('sys.symbol.lock_open');
+static readonly timer: Resource = $r('sys.symbol.timer');
+static readonly clipboard: Resource = $r('sys.symbol.text_clipboard');
   static readonly touchId: Resource = $r('sys.symbol.touchid');
   static readonly faceId: Resource = $r('sys.symbol.face');
 }

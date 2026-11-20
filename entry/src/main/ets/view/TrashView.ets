@@ -7,7 +7,7 @@ import { confirmDanger } from '../common/Dialog';
 import { VaultItem } from '../common/Models';
 import { Icons, typeColor, typeSymbol } from '../common/Icons';
 import { SelectionBridge } from '../common/SelectionBridge';
-import { BrandAvatar, logoRawOf } from './LogoBits';
+import { BrandAvatar, logoRawFor } from './LogoBits';
 import { SwipeActions } from './SwipeActions';
 
 @Component
@@ -169,7 +169,7 @@ export struct TrashView {
       }
 
       BrandAvatar({
-        raw: logoRawOf(item.fields),
+        raw: logoRawFor(item.uri, item.name),
         name: item.name,
         fallbackIcon: typeSymbol(item.type),
         fallbackColor: typeColor(item.type),

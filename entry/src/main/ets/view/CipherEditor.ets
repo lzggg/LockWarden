@@ -14,8 +14,8 @@ import { PasswordGeneratorPanel } from './PasswordGeneratorPanel';
 import { EyeToggle } from './EyeToggle';
 import { EditorBridge } from '../common/EditorBridge';
 import { mediaquery } from '@kit.ArkUI';
-import { BrandAvatar, LogoPickerDialog, logoRawOf, isLogoField } from './LogoBits';
-import { LOGO_FIELD_NAME, matchBrand, logoPresetValue } from '../common/BrandLogos';
+import { isLogoField } from './LogoBits';
+import { scanSupported } from '../common/ScanSupport';
 
 /** 带标签的单行输入；@Prop 保证外部改值（如生成密码）能刷新 */
 @Component
@@ -60,6 +60,8 @@ export struct CipherEditor {
   };
   /** 新建文件夹：返回新文件夹 id，失败抛错 */
   onCreateFolder: (name: string) => Promise<string> = async () => '';
+  /** 扫码填入验证器密钥（由外层用 ScanKit 实现） */
+  onScanTotpForEditor: () => Promise<string> = async () => '';
 
   @State type: number = 1;
   @State name: string = '';
@@ -96,21 +98,6 @@ export struct CipherEditor {
   /** 宽屏时类型切换条靠左，手机上沿用居中的观感 */
   @State wide: boolean = false;
   private wideListener: mediaquery.MediaQueryListener | null = null;
-
-  // Logo
-  @State logoRaw: string = '';
-  private logoManual: boolean = false;
-  private logoPicker: CustomDialogController = new CustomDialogController({
-    builder: LogoPickerDialog({
-      onPick: (raw: string) => {
-        this.logoRaw = raw;
-        this.logoManual = true;
-      }
-    }),
-    autoCancel: true,
-    alignment: DialogAlignment.Center,
-    customStyle: true
-  });
 
   @State showPassword: boolean = false;
   @State showGenerator: boolean = false;
@@ -153,7 +140,6 @@ export struct CipherEditor {
     this.city = d.identity.city;
     this.postalCode = d.identity.postalCode;
     this.country = d.identity.country;
-    this.logoRaw = logoRawOf(d.fields);
     const visibleFields: VaultField[] = [];
     for (let i = 0; i < d.fields.length; i++) {
       if (!isLogoField(d.fields[i])) {
@@ -224,7 +210,7 @@ export struct CipherEditor {
       this.onClose();
       return;
     }
-    AlertDialog.show({
+    this.getUIContext().showAlertDialog({
       title: '放弃更改？',
       message: '这个条目还没有保存，返回会丢失刚才的修改。',
       autoCancel: true,
@@ -292,7 +278,7 @@ export struct CipherEditor {
       folderId: this.folderId,
       card: card,
       identity: identity,
-      fields: this.withLogoField()
+      fields: this.withoutLogoField()
     };
     return draft;
   }
@@ -348,20 +334,56 @@ export struct CipherEditor {
     }
   }
 
-  /** 把 logo 作为保留字段一起存进条目 */
-  private withLogoField(): VaultField[] {
+  /** 丢弃历史遗留的 logo 字段（老版本写入的），普通自定义字段原样保留 */
+  private withoutLogoField(): VaultField[] {
     const result: VaultField[] = [];
     for (let i = 0; i < this.fields.length; i++) {
       if (!isLogoField(this.fields[i])) {
         result.push(this.fields[i]);
       }
     }
-    if (this.logoRaw.length > 0) {
-      const logoField: VaultField = { name: LOGO_FIELD_NAME, value: this.logoRaw, type: 0 };
-      result.push(logoField);
-    }
     return result;
   }
+  /** 扫码把 otpauth 链接填进验证器密钥输入框（保存时会同步到验证器页） */
+  private async scanTotpSecret(): Promise<void> {
+    try {
+      const raw: string = await this.onScanTotpForEditor();
+      const text: string = raw.trim();
+      if (text.length === 0) {
+        return;
+      }
+      this.totp = text;
+      this.getUIContext().getPromptAction().showToast({ message: '已填入验证器密钥', duration: 1600 });
+    } catch (e) {
+      const message: string = (e as Error).message;
+      this.getUIContext().getPromptAction().showToast({
+        message: message.length > 0 ? message : '扫码已取消',
+        duration: 2000
+      });
+    }
+  }
+
+  /** 密码越长字号越小，保证所有圆点都能放下、数量与位数一致 */
+  private maskFontSize(): number {
+    const n: number = this.password.length;
+    if (n <= 12) {
+      return Theme.FONT_BODY;
+    }
+    if (n <= 18) {
+      return 14;
+    }
+    return 12;
+  }
+
+  /** 隐藏态显示的圆点数量与密码长度一致 */
+  private maskText(): string {
+    let out: string = '';
+    for (let i = 0; i < this.password.length; i++) {
+      out += '•';
+    }
+    return out;
+  }
+
   private addField(): void {
     const field: VaultField = { name: '', value: '', type: 0 };
     const next: VaultField[] = this.fields.slice(0);
@@ -518,51 +540,8 @@ export struct CipherEditor {
               placeholder: '例如：GitHub',
               onValue: (v: string) => {
                 this.name = v;
-                if (!this.logoManual) {
-                  const matched: string = matchBrand(v);
-                  if (matched.length > 0) {
-                    this.logoRaw = logoPresetValue(matched);
-                  }
-                }
               }
             })
-
-            // Logo：自动匹配 + 手动选择
-            Row({ space: 10 }) {
-              BrandAvatar({
-                raw: this.logoRaw,
-                name: this.name,
-                fallbackIcon: typeSymbol(this.type),
-                fallbackColor: Theme.PRIMARY,
-                diameter: 38
-              })
-              Column({ space: 2 }) {
-                Text(this.logoRaw.length > 0 ? '已匹配 Logo' : 'Logo（可选）')
-                  .fontSize(12)
-                  .fontWeight(FontWeight.Medium)
-                  .fontColor(Theme.TEXT_HINT)
-                Text(this.logoRaw.length > 0 ?
-                  (this.logoManual ? '手动选择' : '根据名称自动匹配') : '输入名称可自动匹配，如 Google / 微信')
-                  .fontSize(11)
-                  .fontColor(Theme.TEXT_HINT)
-                  .maxLines(1)
-                  .textOverflow({ overflow: TextOverflow.Ellipsis })
-              }
-              .layoutWeight(1)
-              .alignItems(HorizontalAlign.Start)
-              Text('选择')
-                .fontSize(13)
-                .fontWeight(FontWeight.Medium)
-                .fontColor(Theme.PRIMARY)
-                .padding({ left: 10, right: 10, top: 6, bottom: 6 })
-                .backgroundColor(Theme.TINT)
-                .borderRadius(14)
-                .onClick(() => this.logoPicker.open())
-            }
-            .width('100%')
-            .padding(10)
-            .borderRadius(Theme.RADIUS_SMALL)
-            .backgroundColor(Theme.BACKGROUND)
 
             if (this.type === CipherType.Login) {
               TextField({
@@ -582,18 +561,33 @@ export struct CipherEditor {
                   .fontColor(Theme.TEXT_HINT)
                   .width('100%')
                 Row({ space: 2 }) {
-                  TextInput({ text: this.password, placeholder: '密码，或点右侧魔棒生成' })
-                    .fontColor(Theme.TEXT_PRIMARY)
-                    .placeholderColor(Theme.TEXT_HINT)
-                    .type(this.showPassword ? InputType.Normal : InputType.Password)
-                    .showPasswordIcon(false)
-                    .height(46)
-                    .layoutWeight(1)
-                    .backgroundColor(Color.Transparent)
-                    .fontSize(Theme.FONT_BODY)
-                    .onChange((v: string) => {
-                      this.password = v;
-                    })
+                  // 隐藏态用自绘圆点覆盖，避免系统 Password 圆点间距过宽
+                  Stack({ alignContent: Alignment.Start }) {
+                    TextInput({ text: this.password, placeholder: '密码，或点右侧魔棒生成' })
+                      .fontColor(this.showPassword ? Theme.TEXT_PRIMARY : Color.Transparent)
+                      .placeholderColor(this.password.length === 0 ? Theme.TEXT_HINT : Color.Transparent)
+                      .type(InputType.Normal)
+                      .showPasswordIcon(false)
+                      .height(46)
+                      .width('100%')
+                      .backgroundColor(Color.Transparent)
+                      .fontSize(Theme.FONT_BODY)
+                      .onChange((v: string) => {
+                        this.password = v;
+                      })
+                    if (!this.showPassword && this.password.length > 0) {
+                      Text(this.maskText())
+                        .fontSize(this.maskFontSize())
+                        .fontColor(Theme.TEXT_PRIMARY)
+                        .letterSpacing(-3)
+                        .maxLines(1)
+                        .height(46)
+                        .padding({ left: 12 })
+                        .hitTestBehavior(HitTestMode.None)
+                    }
+                  }
+                  .layoutWeight(1)
+                  .height(46)
                   EyeToggle({
                     revealed: this.showPassword,
                     onToggle: () => {
@@ -622,14 +616,46 @@ export struct CipherEditor {
               }
               .width('100%')
 
-              TextField({
-                label: '验证器密钥（otpauth:// 或 Base32）',
-                value: this.totp,
-                placeholder: '可选',
-                onValue: (v: string) => {
-                  this.totp = v;
+              Column({ space: 6 }) {
+                Text('验证器密钥（otpauth:// 或 Base32）')
+                  .fontSize(12)
+                  .fontWeight(FontWeight.Medium)
+                  .fontColor(Theme.TEXT_HINT)
+                  .width('100%')
+                Row({ space: 2 }) {
+                  TextInput({ text: this.totp, placeholder: '可选，可扫码填入' })
+                    .fontColor(Theme.TEXT_PRIMARY)
+                    .placeholderColor(Theme.TEXT_HINT)
+                    .height(46)
+                    .layoutWeight(1)
+                    .backgroundColor(Color.Transparent)
+                    .fontSize(Theme.FONT_BODY)
+                    .onChange((v: string) => {
+                      this.totp = v;
+                    })
+                  if (scanSupported()) {
+                    Row() {
+                      SymbolGlyph(Icons.scan)
+                        .fontSize(20)
+                        .fontColor([Theme.PRIMARY])
+                    }
+                    .width(34)
+                    .height(34)
+                    .borderRadius(17)
+                    .justifyContent(FlexAlign.Center)
+                    .backgroundColor(Theme.TINT)
+                    .margin({ right: 4 })
+                    .onClick(() => {
+                      this.scanTotpSecret();
+                    })
+                  }
                 }
-              })
+                .width('100%')
+                .height(46)
+                .borderRadius(Theme.RADIUS_SMALL)
+                .backgroundColor(Theme.CARD)
+              }
+              .width('100%')
 
               TextField({
                 label: '网址',

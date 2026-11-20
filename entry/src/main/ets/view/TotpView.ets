@@ -5,6 +5,7 @@
  * 账号列表由 TotpStore（Index 注入）提供，这里只负责展示与交互。
  */
 import { Theme } from '../common/Theme';
+import { scanSupported } from '../common/ScanSupport';
 import { confirmDanger } from '../common/Dialog';
 import { Icons } from '../common/Icons';
 import { TotpAccount } from '../common/TotpStore';
@@ -180,7 +181,9 @@ export struct TotpView {
         .fontSize(Theme.FONT_BODY)
         .fontWeight(FontWeight.Medium)
         .fontColor(Theme.TEXT_PRIMARY)
-      Text('扫描网站给出的 otpauth 二维码即可添加，验证码每 30 秒刷新一次，密钥加密后只存在本机。')
+      Text(scanSupported() ?
+              '扫描网站给出的 otpauth 二维码即可添加，验证码每 30 秒刷新一次，密钥加密后只存在本机。' :
+              '点右上角 + 手动输入 otpauth 密钥即可添加，验证码每 30 秒刷新一次，密钥加密后只存在本机。')
         .fontSize(Theme.FONT_CAPTION)
         .fontWeight(FontWeight.Medium)
         .fontColor(Theme.TEXT_HINT)
@@ -287,7 +290,7 @@ export struct TotpView {
         .alignItems(HorizontalAlign.Start)
         .layoutWeight(1)
 
-        // 扫码：与加号一致的浅底圆 + 主色图标
+        // 扫码：与加号一致的浅底圆 + 主色图标（所有设备都显示；不支持时由 Index 提示）
         Row() {
           SymbolGlyph(Icons.scan)
             .fontSize(30)

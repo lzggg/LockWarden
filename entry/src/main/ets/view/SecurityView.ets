@@ -9,6 +9,8 @@ import { Icons } from '../common/Icons';
 import { VaultStore } from '../common/VaultStore';
 import { confirmDanger } from '../common/Dialog';
 import { VaultIO, PickedFile } from '../common/VaultIO';
+import { EyeToggle } from './EyeToggle';
+import { LOCK_OPTIONS, lockLabel, lockOptions, lockIndex } from '../common/LockOptions';
 
 /** 单条开关行（独立组件：@Builder 的按值参数不会刷新开关状态），生物识别与隐私共用 */
 @Component
@@ -72,6 +74,32 @@ struct ToggleRow {
  * 本机模式下的「清除并退出」二次确认。
  * 本地没有服务端副本，删除即不可恢复，因此用红色警示区 + 不可逆提示 + 红色按钮。
  */
+/** 剪贴板自动清除可选秒数：0 = 从不清除 */
+const CLIP_OPTIONS: number[] = [0, 30, 60, 120, 300];
+
+function clipLabel(seconds: number): string {
+  if (seconds <= 0) {
+    return '从不';
+  }
+  if (seconds < 60) {
+    return `${seconds} 秒`;
+  }
+  return `${seconds / 60} 分钟`;
+}
+
+function clipOptions(): SelectOption[] {
+  const list: SelectOption[] = [];
+  for (let i = 0; i < CLIP_OPTIONS.length; i++) {
+    list.push({ value: clipLabel(CLIP_OPTIONS[i]) });
+  }
+  return list;
+}
+
+function clipIndex(seconds: number): number {
+  const found: number = CLIP_OPTIONS.indexOf(seconds);
+  return found < 0 ? 1 : found;
+}
+
 @CustomDialog
 struct ClearLocalVaultDialog {
   controller?: CustomDialogController;
@@ -104,7 +132,13 @@ struct ClearLocalVaultDialog {
           .fontColor(Theme.TEXT_SECONDARY)
           .lineHeight(19)
           .width('100%')
-        Text('清除并退出后，所有条目、文件夹、验证器账户与设置都会被永久删除，且无法恢复。')
+        Text('清除并退出后，条目、文件夹与设置会被永久删除，且无法恢复。')
+          .fontSize(13)
+          .fontWeight(FontWeight.Medium)
+          .fontColor(Theme.DANGER)
+          .lineHeight(19)
+          .width('100%')
+        Text('验证器账号只保存在本机（不会同步到服务器），退出并清除不会删除它们；但卸载应用或在系统设置里清除应用数据后，验证器会丢失。')
           .fontSize(13)
           .fontWeight(FontWeight.Medium)
           .fontColor(Theme.DANGER)
@@ -221,6 +255,126 @@ struct ExportFormatDialog {
   }
 }
 
+/** 敏感操作前验证主密码（导出、清除本机数据共用） */
+@CustomDialog
+struct PasswordCheckDialog {
+  controller?: CustomDialogController;
+  /** 标题、说明、确认按钮文案由调用方决定 */
+  @Prop title: string = '验证主密码';
+  @Prop message: string = '';
+  @Prop confirmText: string = '验证并继续';
+  verify: (password: string) => Promise<boolean> = () => Promise.resolve(false);
+  onPassed: () => void = () => {
+  };
+
+  @State password: string = '';
+  @State revealed: boolean = false;
+  @State busy: boolean = false;
+  @State error: string = '';
+
+  private async confirm(): Promise<void> {
+    if (this.busy) {
+      return;
+    }
+    if (this.password.length === 0) {
+      this.error = '请输入主密码';
+      return;
+    }
+    this.busy = true;
+    this.error = '';
+    try {
+      const ok: boolean = await this.verify(this.password);
+      if (ok) {
+        this.controller?.close();
+        this.onPassed();
+      } else {
+        this.error = '主密码不正确，请重试';
+      }
+    } catch (e) {
+      this.error = (e as Error).message;
+    } finally {
+      this.busy = false;
+    }
+  }
+
+  build() {
+    Column({ space: 14 }) {
+      Text(this.title)
+        .fontSize(Theme.FONT_TITLE)
+        .fontWeight(FontWeight.Bold)
+        .fontColor(Theme.TEXT_PRIMARY)
+        .width('100%')
+      Text(this.message)
+        .fontSize(13)
+        .fontWeight(FontWeight.Medium)
+        .fontColor(Theme.TEXT_SECONDARY)
+        .lineHeight(19)
+        .width('100%')
+
+      Row({ space: 8 }) {
+        TextInput({ text: this.password, placeholder: '主密码' })
+          .type(this.revealed ? InputType.Normal : InputType.Password)
+          .showPasswordIcon(false)
+          .height(46)
+          .layoutWeight(1)
+          .backgroundColor(Theme.CARD)
+          .borderRadius(12)
+          .fontSize(Theme.FONT_BODY)
+          .fontColor(Theme.TEXT_PRIMARY)
+          .placeholderColor(Theme.TEXT_HINT)
+          .onChange((value: string) => {
+            this.password = value;
+            this.error = '';
+          })
+        EyeToggle({
+          revealed: this.revealed,
+          onToggle: () => {
+            this.revealed = !this.revealed;
+          }
+        })
+      }
+      .width('100%')
+
+      if (this.error.length > 0) {
+        Text(this.error)
+          .fontSize(12)
+          .fontWeight(FontWeight.Medium)
+          .fontColor(Theme.DANGER)
+          .width('100%')
+      }
+
+      Column({ space: 10 }) {
+        Button(this.busy ? '验证中…' : this.confirmText)
+          .width('100%')
+          .height(46)
+          .borderRadius(23)
+          .backgroundColor(Theme.PRIMARY)
+          .fontColor(Color.White)
+          .fontSize(Theme.FONT_BODY)
+          .enabled(!this.busy)
+          .onClick(() => {
+            this.confirm();
+          })
+        Button('取消')
+          .width('100%')
+          .height(46)
+          .borderRadius(23)
+          .backgroundColor(Theme.CARD)
+          .fontColor(Theme.TEXT_PRIMARY)
+          .fontSize(Theme.FONT_BODY)
+          .onClick(() => {
+            this.controller?.close();
+          })
+      }
+      .width('100%')
+    }
+    .width('100%')
+    .padding(20)
+    .borderRadius(Theme.RADIUS)
+    .backgroundColor(Theme.BACKGROUND)
+  }
+}
+
 @Component
 export struct SecurityView {
   @Prop bioFingerprint: boolean = false;
@@ -232,10 +386,14 @@ export struct SecurityView {
   @Prop bioRev: number = 0;
   /** 禁止截屏 */
   @Prop noScreenshot: boolean = false;
+  /** 自动锁定分钟数（0 = 从不） */
+  @Prop autoLockMinutes: number = 5;
 
   onBack: () => void = () => {
   };
   onToggleNoScreenshot: (on: boolean) => void = () => {
+  };
+  onAutoLock: (minutes: number) => void = () => {
   };
   onToggleBiometric: (kind: string, enable: boolean) => void = () => {
   };
@@ -253,14 +411,20 @@ export struct SecurityView {
 
   /** 忙状态（导入/导出进行中） */
   @State ioBusy: boolean = false;
+  /** 剪贴板自动清除秒数（0 = 从不） */
+  @State clipSeconds: number = VaultStore.clipboardClearSeconds;
+  /** 待导出格式：false=json，true=csv（进验证对话框后才知道结果） */
+  private pendingCsv: boolean = false;
 
   private exportDialog: CustomDialogController = new CustomDialogController({
     builder: ExportFormatDialog({
       onJson: () => {
-        this.doExport(false);
+        this.pendingCsv = false;
+        this.exportAuth.open();
       },
       onCsv: () => {
-        this.doExport(true);
+        this.pendingCsv = true;
+        this.exportAuth.open();
       }
     }),
     autoCancel: true,
@@ -270,11 +434,48 @@ export struct SecurityView {
   /** 本机模式的强提醒对话框 */
   private clearDialog: CustomDialogController = new CustomDialogController({
     builder: ClearLocalVaultDialog({
-      onConfirm: () => this.onSignOut()
+      onConfirm: () => this.requirePasswordThenClear()
     }),
     autoCancel: true,
     customStyle: true
   });
+
+  /** 导出前的主密码验证 */
+  private exportAuth: CustomDialogController = new CustomDialogController({
+    builder: PasswordCheckDialog({
+      title: '验证主密码',
+      message: '导出的文件是明文密码库，请先输入主密码确认是本人操作。',
+      confirmText: '验证并导出',
+      verify: (password: string): Promise<boolean> => VaultStore.verifyMasterPassword(password),
+      onPassed: () => {
+        this.doExport(this.pendingCsv);
+      }
+    }),
+    autoCancel: true,
+    customStyle: true
+  });
+
+  /** 清除本机数据前的主密码验证 */
+  private clearAuth: CustomDialogController = new CustomDialogController({
+    builder: PasswordCheckDialog({
+      title: '验证主密码',
+      message: '即将清除本机数据且无法恢复，请输入主密码确认是本人操作。',
+      confirmText: '验证并清除',
+      verify: (password: string): Promise<boolean> => VaultStore.verifyMasterPassword(password),
+      onPassed: () => this.onSignOut()
+    }),
+    autoCancel: true,
+    customStyle: true
+  });
+
+  /** 清除数据前统一走主密码验证（演示模式没有主密码，直接清除） */
+  private requirePasswordThenClear(): void {
+    if (VaultStore.demo) {
+      this.onSignOut();
+      return;
+    }
+    this.clearAuth.open();
+  }
 
   /** 可点击的设置行：图标 + 标题 + 说明 + 右箭头 */
   @Builder
@@ -434,15 +635,15 @@ export struct SecurityView {
       .borderRadius(Theme.RADIUS)
       .backgroundColor(Theme.CARD)
 
-      Text('开启后，解锁时优先弹出系统指纹 / 面容验证；验证不通过仍可输入主密码。')
+      Text('开启后，解锁页会出现对应的指纹 / 面容按钮，点一下才会验证；也可以直接输入主密码。')
         .fontSize(12)
         .fontWeight(FontWeight.Medium)
         .fontColor(Theme.TEXT_HINT)
         .width('100%')
         .margin({ top: 12 })
 
-      // 隐私（与生物识别分开）
-      Text('隐私')
+      // 自动锁定 / 截屏 / 剪贴板：三类"自动与隐私"设置放同一张卡片
+      Text('自动与隐私')
         .fontSize(13)
         .fontWeight(FontWeight.Medium)
         .fontColor(Theme.TEXT_HINT)
@@ -450,6 +651,83 @@ export struct SecurityView {
         .margin({ left: 4, top: 24, bottom: 8 })
 
       Column() {
+        Row({ space: 12 }) {
+          SymbolGlyph(Icons.timer)
+            .fontSize(20)
+            .fontColor([Theme.TEXT_SECONDARY])
+            .width(24)
+          Column({ space: 2 }) {
+            Text('自动锁定')
+              .fontSize(Theme.FONT_BODY)
+              .fontWeight(FontWeight.Medium)
+              .fontColor(Theme.TEXT_PRIMARY)
+              .width('100%')
+            Text(this.autoLockMinutes < 0 ? '退出应用时立即锁定' :
+              (this.autoLockMinutes === 0 ? '不会自动锁定' : `离开应用超过 ${lockLabel(this.autoLockMinutes)}自动锁定`))
+              .fontSize(12)
+              .fontWeight(FontWeight.Medium)
+              .fontColor(Theme.TEXT_HINT)
+              .width('100%')
+          }
+          .layoutWeight(1)
+          .alignItems(HorizontalAlign.Start)
+          Select(lockOptions())
+            .selected(lockIndex(this.autoLockMinutes))
+            .value(lockLabel(this.autoLockMinutes))
+            .font({ size: Theme.FONT_BODY, weight: FontWeight.Medium })
+            .fontColor(Theme.PRIMARY)
+            .optionFont({ size: 14 })
+            .selectedOptionFont({ size: 14 })
+            .backgroundColor(Color.Transparent)
+            .onSelect((index: number) => {
+              this.onAutoLock(LOCK_OPTIONS[index]);
+            })
+        }
+        .width('100%')
+        .padding({ left: 16, right: 8, top: 12, bottom: 12 })
+
+        Divider().color(Theme.DIVIDER).margin({ left: 16, right: 16 })
+
+        Row({ space: 12 }) {
+          SymbolGlyph(Icons.clipboard)
+            .fontSize(20)
+            .fontColor([Theme.TEXT_SECONDARY])
+            .width(24)
+          Column({ space: 2 }) {
+            Text('自动清除剪贴板')
+              .fontSize(Theme.FONT_BODY)
+              .fontWeight(FontWeight.Medium)
+              .fontColor(Theme.TEXT_PRIMARY)
+              .width('100%')
+            Text(this.clipSeconds > 0 ?
+              `复制密码后 ${clipLabel(this.clipSeconds)}自动清空` :
+              '不会自动清空剪贴板')
+              .fontSize(12)
+              .fontWeight(FontWeight.Medium)
+              .fontColor(Theme.TEXT_HINT)
+              .width('100%')
+          }
+          .layoutWeight(1)
+          .alignItems(HorizontalAlign.Start)
+          Select(clipOptions())
+            .selected(clipIndex(this.clipSeconds))
+            .value(clipLabel(this.clipSeconds))
+            .font({ size: Theme.FONT_BODY, weight: FontWeight.Medium })
+            .fontColor(Theme.PRIMARY)
+            .optionFont({ size: 14 })
+            .selectedOptionFont({ size: 14 })
+            .backgroundColor(Color.Transparent)
+            .onSelect((index: number) => {
+              const seconds: number = CLIP_OPTIONS[index];
+              this.clipSeconds = seconds;
+              VaultStore.setClipboardClearSeconds(seconds);
+            })
+        }
+        .width('100%')
+        .padding({ left: 16, right: 8, top: 12, bottom: 12 })
+
+        Divider().color(Theme.DIVIDER).margin({ left: 16, right: 16 })
+
         ToggleRow({
           icon: Icons.privacy,
           label: '不允许截图',
@@ -468,12 +746,6 @@ export struct SecurityView {
       .borderRadius(Theme.RADIUS)
       .backgroundColor(Theme.CARD)
 
-      Text('仅对系统截屏 / 录屏生效；开启后自己也截不到图，需要临时关闭再来。')
-        .fontSize(12)
-        .fontWeight(FontWeight.Medium)
-        .fontColor(Theme.TEXT_HINT)
-        .width('100%')
-        .margin({ top: 12 })
 
       // 主密码
       Text('主密码')
@@ -622,8 +894,8 @@ export struct SecurityView {
             this.clearDialog.open();
           } else {
             confirmDanger('退出登录？',
-              '将从本机清除登录状态与缓存数据；服务器上的保险库不受影响，之后可以重新登录。',
-              '退出', () => this.onSignOut());
+              '将从本机清除登录状态与缓存数据；服务器上的保险库不受影响，之后可以重新登录。验证器账号只保存在本机，退出登录不会删除；卸载应用或在系统设置里清除应用数据后会丢失。',
+              '退出', () => this.requirePasswordThenClear());
           }
         })
       }
@@ -632,8 +904,8 @@ export struct SecurityView {
       .backgroundColor(Theme.CARD)
 
       Text(this.localMode ?
-        '这是仅在本机使用的保险库，清除后没有任何副本可以恢复。' :
-        '退出后本机不再保留登录状态，重新登录即可继续使用。')
+        '这是仅在本机使用的保险库，清除后没有任何副本可以恢复。验证器账号也只在本机，卸载应用或清除应用数据会丢失。' :
+        '退出后本机不再保留登录状态，重新登录即可继续使用。验证器账号只保存在本机，不会同步到服务器。')
         .fontSize(12)
         .fontColor(Theme.TEXT_HINT)
         .width('100%')

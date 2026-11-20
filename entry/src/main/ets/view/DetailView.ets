@@ -10,8 +10,9 @@ import { VaultItem, CipherType, VaultField } from '../common/Models';
 import { Icons, typeColor, typeSymbol } from '../common/Icons';
 import { generateTotpSync, secondsRemaining } from '../common/Totp';
 import { EyeToggle } from './EyeToggle';
-import { BrandAvatar, logoRawOf, isLogoField } from './LogoBits';
+import { BrandAvatar, logoRawFor, isLogoField } from './LogoBits';
 import { CopyButton } from './CopyButton';
+import { CopyHint } from '../common/CopyHint';
 
 /**
  * 字段卡片。
@@ -31,6 +32,27 @@ struct FieldCard {
   onToggleReveal: () => void = () => {
   };
 
+  /** 隐藏态的圆点数量与实际密码位数一致 */
+  private maskedText(): string {
+    let out: string = '';
+    for (let i = 0; i < this.value.length; i++) {
+      out += '•';
+    }
+    return out;
+  }
+
+  /** 密码越长字号越小，保证圆点不被裁掉 */
+  private maskedFontSize(): number {
+    const n: number = this.value.length;
+    if (n <= 12) {
+      return Theme.FONT_BODY;
+    }
+    if (n <= 20) {
+      return 14;
+    }
+    return 12;
+  }
+
   build() {
     Column({ space: 6 }) {
       Text(this.label)
@@ -39,10 +61,12 @@ struct FieldCard {
         .fontColor(Theme.TEXT_HINT)
         .width('100%')
       Row({ space: 10 }) {
-        Text(this.masked && !this.revealed ? '••••••••••' : (this.value.length > 0 ? this.value : '—'))
-          .fontSize(Theme.FONT_BODY)
+        Text(this.masked && !this.revealed ? this.maskedText() : (this.value.length > 0 ? this.value : '—'))
+          .fontSize(this.masked && !this.revealed ? this.maskedFontSize() : Theme.FONT_BODY)
           .fontWeight(FontWeight.Medium)
           .fontColor(Theme.TEXT_PRIMARY)
+          .letterSpacing(this.masked && !this.revealed ? -2 : 0)
+          .maxLines(1)
           .layoutWeight(1)
           .copyOption(CopyOptions.LocalDevice)
         if (this.masked) {
@@ -195,6 +219,8 @@ export struct DetailView {
   @State fieldReveal: boolean[] = [];
   @State totpCode: string = '';
   @State totpRemain: number = 0;
+  /** 进度条百分比（100ms 刷新，连续缩短） */
+  @State totpProgress: number = 0;
   @State totpError: string = '';
   @State showHistory: boolean = false;
   private timer: number = -1;
@@ -221,6 +247,7 @@ export struct DetailView {
     try {
       this.totpCode = generateTotpSync(this.item.totp, 6, 30);
       this.totpRemain = secondsRemaining(30);
+      this.totpProgress = Math.max(0, Math.min(100, this.totpRemain / 30 * 100));
       this.totpError = '';
     } catch (e) {
       this.totpError = 'TOTP 密钥无法解析';
@@ -232,6 +259,7 @@ export struct DetailView {
       return;
     }
     this.totpRemain = secondsRemaining(30);
+    this.totpProgress = Math.round(this.totpRemain / 30 * 100);
     if (this.totpRemain === 30) {
       this.refreshTotp();
     }
@@ -241,6 +269,8 @@ export struct DetailView {
     if (value.length === 0) {
       return;
     }
+    // 告诉主页面这次复制来自哪个条目，便于复制用户名后发「复制密码」通知
+    CopyHint.set(this.item.id, label);
     this.onCopy(label, value);
   }
 
@@ -275,7 +305,7 @@ export struct DetailView {
           // 头部
           Row({ space: 14 }) {
             BrandAvatar({
-              raw: logoRawOf(this.item.fields),
+              raw: logoRawFor(this.item.uri, this.item.name),
               name: this.item.name,
               fallbackIcon: typeSymbol(this.item.type),
               fallbackColor: typeColor(this.item.type),
@@ -393,10 +423,17 @@ export struct DetailView {
                   .fontColor(this.totpError.length > 0 ? Theme.DANGER : Theme.PRIMARY)
                   .letterSpacing(6)
 
-                Progress({ value: 30 - this.totpRemain, total: 30, type: ProgressType.Linear })
-                  .width('100%')
-                  .height(3)
-                  .color(Theme.PRIMARY)
+                Row() {
+                  Row()
+                    .width(`${this.totpProgress}%`)
+                    .height(4)
+                    .borderRadius(2)
+                    .backgroundColor(this.totpRemain <= 5 ? Theme.DANGER : Theme.PRIMARY)
+                }
+                .width('100%')
+                .height(4)
+                .borderRadius(2)
+                .backgroundColor(Theme.BACKGROUND)
                 Text(`${this.totpRemain} 秒后刷新`)
                   .fontSize(11)
                   .fontWeight(FontWeight.Medium)

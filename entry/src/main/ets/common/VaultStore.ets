@@ -9,6 +9,7 @@
  *  - 回收站与正常条目分开维护（服务端用 deletedDate 区分）。
  */
 import { preferences } from '@kit.ArkData';
+import { CertPinning } from './CertPinning';
 import { util } from '@kit.ArkTS';
 import { fileIo as fs } from '@kit.CoreFileKit';
 import { common } from '@kit.AbilityKit';
@@ -28,6 +29,7 @@ import { Bytes } from './CryptoUtils';
 import { demoItems, demoFolders } from './DemoData';
 import { Biometric } from './Biometric';
 import { wrapUserKey, unwrapUserKey, deleteBioKey } from './BioKeyStore';
+import * as Clipboard from './Clipboard';
 
 const PREFS_NAME: string = 'vaultwarden_prefs';
 const CACHE_FILE: string = 'sync-cache.json';
@@ -45,6 +47,8 @@ const KEY_ENC_USER_KEY: string = 'encUserKey';
 const KEY_ENC_REFRESH: string = 'encRefreshToken';
 const KEY_NAME: string = 'userName';
 const KEY_AUTO_LOCK: string = 'autoLockMinutes';
+const KEY_CLIP_CLEAR: string = 'clipboardClearSeconds';
+const KEY_NOTIFY_KEEP: string = 'notifyKeepSeconds';
 const KEY_SORT_MODE: string = 'sortMode';
 const KEY_BIO_BLOB: string = 'bioUserKeyBlob';
 const KEY_BIO_FINGERPRINT: string = 'bioFingerprintEnabled';
@@ -84,6 +88,10 @@ class VaultStoreImpl {
   iterations: number = 600000;
   /** 自动锁定分钟数；0 表示从不 */
   autoLockMinutes: number = 5;
+  /** 复制后自动清空剪贴板的秒数；0 表示从不清除 */
+  clipboardClearSeconds: number = 30;
+  /** 「复制密码」通知的保留秒数（30 / 40 / 50） */
+  notifyKeepSeconds: number = 30;
   /** 列表排序方式：name | created | updated */
   sortMode: string = 'name';
   /** 指纹解锁是否开启 */
@@ -132,6 +140,7 @@ class VaultStoreImpl {
 
   async init(context: common.UIAbilityContext): Promise<void> {
     this.appCtx = context;
+    await CertPinning.init(context);
     this.cacheDir = context.filesDir;
     this.prefs = await preferences.getPreferences(context, PREFS_NAME);
     this.server = this.prefs.getSync(KEY_SERVER, '') as string;
@@ -140,6 +149,8 @@ class VaultStoreImpl {
     this.kdf = this.prefs.getSync(KEY_KDF, 0) as number;
     this.iterations = this.prefs.getSync(KEY_ITERATIONS, 600000) as number;
     this.autoLockMinutes = this.prefs.getSync(KEY_AUTO_LOCK, 5) as number;
+    this.clipboardClearSeconds = this.prefs.getSync(KEY_CLIP_CLEAR, 30) as number;
+    this.notifyKeepSeconds = this.prefs.getSync(KEY_NOTIFY_KEEP, 30) as number;
     this.sortMode = this.prefs.getSync(KEY_SORT_MODE, 'name') as string;
     this.bioFingerprint = this.prefs.getSync(KEY_BIO_FINGERPRINT, false) as boolean;
     this.bioFace = this.prefs.getSync(KEY_BIO_FACE, false) as boolean;
@@ -157,6 +168,32 @@ class VaultStoreImpl {
       this.hasAccount = encUserKey.length > 0 && this.server.length > 0 && this.email.length > 0;
     }
     this.ready = true;
+  }
+
+  /** 退出本机模式：清掉本机保险库文件与相关状态，避免和服务器账号串用 */
+  private async leaveLocalMode(): Promise<void> {
+    if (!this.localMode) {
+      return;
+    }
+    this.localMode = false;
+    this.localSalt = '';
+    this.localEncUserKey = '';
+    this.localCiphers = [];
+    this.localFolders = [];
+    try {
+      if (fs.accessSync(this.localPath())) {
+        fs.unlinkSync(this.localPath());
+      }
+    } catch (e) {
+      // 文件不存在或删除失败都不影响后续连接服务器
+    }
+    if (this.prefs !== null) {
+      await this.prefs.put(KEY_LOCAL_MODE, false);
+      await this.prefs.put(KEY_ENC_USER_KEY, '');
+      await this.prefs.put(KEY_ENC_REFRESH, '');
+      await this.prefs.flush();
+    }
+    this.refreshToken = '';
   }
 
   /** 本地模式：创建只存在本机的保险库（主密码仅用于本机加解密） */
@@ -183,6 +220,9 @@ class VaultStoreImpl {
     this.server = '';
     this.email = '';
     this.userName = '本机保险库';
+    // 本机库不继承服务器会话
+    this.accessToken = '';
+    this.refreshToken = '';
     this.kdf = kdf;
     this.iterations = iterations;
     await this.prefs.put(KEY_LOCAL_MODE, true);
@@ -192,6 +232,7 @@ class VaultStoreImpl {
     await this.prefs.put(KEY_KDF, kdf);
     await this.prefs.put(KEY_ITERATIONS, iterations);
     await this.prefs.put(KEY_ENC_USER_KEY, encUserKey);
+    await this.prefs.put(KEY_ENC_REFRESH, '');
     await this.prefs.flush();
     this.userKey = userKey;
     this.accessToken = '';
@@ -443,6 +484,9 @@ class VaultStoreImpl {
   async configure(serverInput: string, emailInput: string): Promise<string> {
     const server: string = Api.normalizeServer(serverInput);
     const email: string = emailInput.trim();
+    // 之前可能是「本机保险库」：切到服务器账号前必须清掉本机模式，
+    // 否则解锁仍走本机分支，用服务器密码去解本机密钥，提示"主密码错误"。
+    await this.leaveLocalMode();
     if (email.length === 0) {
       throw new Error('请填写账号邮箱');
     }
@@ -450,6 +494,8 @@ class VaultStoreImpl {
       throw new Error('邮箱格式不正确，例如 you@example.com');
     }
     const version: string = await Api.probeServer(server);
+    // 首次连接记录证书指纹；之后证书变化会抛 CERT_CHANGED，由连接页让用户确认
+    await CertPinning.verify(server);
     let prelogin: PreloginResponse;
     try {
       prelogin = await Api.prelogin(server, email);
@@ -1238,6 +1284,62 @@ class VaultStoreImpl {
     if (this.prefs !== null) {
       await this.prefs.put(KEY_AUTO_LOCK, minutes);
       await this.prefs.flush();
+    }
+  }
+
+  /** 保存通知保留时长（秒） */
+  async setNotifyKeepSeconds(seconds: number): Promise<void> {
+    this.notifyKeepSeconds = seconds;
+    if (this.prefs !== null) {
+      await this.prefs.put(KEY_NOTIFY_KEEP, seconds);
+      await this.prefs.flush();
+    }
+  }
+
+  /** 保存剪贴板自动清除设置（秒，0 = 从不清除），并同步给剪贴板模块 */
+  async setClipboardClearSeconds(seconds: number): Promise<void> {
+    this.clipboardClearSeconds = seconds;
+    Clipboard.setAutoClearSeconds(seconds);
+    if (this.prefs !== null) {
+      await this.prefs.put(KEY_CLIP_CLEAR, seconds);
+      await this.prefs.flush();
+    }
+  }
+
+  /**
+   * 校验主密码是否正确（完全离线，不联网、不改变当前登录状态）。
+   * 原理：用输入的主密码重新派生密钥，能解开本机保存的账号密钥即为正确。
+   * 演示模式没有主密码，直接放行。
+   */
+  async verifyMasterPassword(password: string): Promise<boolean> {
+    if (this.demo) {
+      return true;
+    }
+    if (password.length === 0) {
+      return false;
+    }
+    try {
+      let encKey: string = '';
+      let salt: string = this.email;
+      if (this.localMode) {
+        await this.readLocalFile();
+        encKey = this.localEncUserKey;
+        salt = this.localSalt;
+      } else {
+        if (this.prefs === null) {
+          return false;
+        }
+        encKey = this.prefs.getSync(KEY_ENC_USER_KEY, '') as string;
+      }
+      if (encKey.length === 0) {
+        return false;
+      }
+      const masterKey: Uint8Array = await deriveMasterKey(password, salt, this.kdf, this.iterations);
+      const stretched: SymmetricCryptoKey = await stretchMasterKey(masterKey);
+      await decryptUserKey(encKey, stretched);
+      return true;
+    } catch (e) {
+      return false;
     }
   }
 

@@ -9,7 +9,7 @@ import { confirmDanger } from '../common/Dialog';
 import { VaultItem, VaultFolder } from '../common/Models';
 import { Icons, typeColor, typeSymbol } from '../common/Icons';
 import { DetailView } from './DetailView';
-import { BrandAvatar, logoRawOf } from './LogoBits';
+import { BrandAvatar, logoRawFor } from './LogoBits';
 import { SelectionBridge } from '../common/SelectionBridge';
 import { FolderBridge } from '../common/FolderBridge';
 import { SwipeActions } from './SwipeActions';
@@ -360,7 +360,7 @@ export struct FolderView {
   itemRow(item: VaultItem) {
     Row({ space: 14 }) {
       BrandAvatar({
-        raw: logoRawOf(item.fields),
+        raw: logoRawFor(item.uri, item.name),
         name: item.name,
         fallbackIcon: typeSymbol(item.type),
         fallbackColor: typeColor(item.type),

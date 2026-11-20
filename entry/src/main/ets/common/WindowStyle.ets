@@ -11,6 +11,7 @@ import { window } from '@kit.ArkUI';
 import { common } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { PrivacyMode } from './PrivacyMode';
+import { deviceInfo } from '@kit.BasicServicesKit';
 
 export class WindowStyle {
   private static win: window.Window | null = null;
@@ -37,9 +38,11 @@ export class WindowStyle {
     if (win === null || ctx === null) {
       return;
     }
+    // 电脑（2in1）没有手机式状态栏/导航条，setWindowSystemBarProperties 在 2in1 上不可用
+    if (deviceInfo.deviceType === '2in1') {
+      return;
+    }
     try {
-      const card: string = WindowStyle.hex(ctx.resourceManager.getColorSync($r('app.color.app_card')));
-      const background: string = WindowStyle.hex(ctx.resourceManager.getColorSync($r('app.color.app_background')));
       const fore: string = dark ? '#FFFFFF' : '#000000';
       win.setWindowSystemBarProperties({
         statusBarColor: '#00000000',
@@ -63,10 +66,5 @@ export class WindowStyle {
     } catch (e) {
       hilog.error(0x0001, 'LockWarden', 'privacy mode failed: %{public}s', (e as Error).message);
     }
-  }
-
-  private static hex(argb: number): string {
-    const value: number = argb & 0xFFFFFF;
-    return '#' + value.toString(16).padStart(6, '0').toUpperCase();
   }
 }

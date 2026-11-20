@@ -9,14 +9,20 @@
  * 界面本身在 view/MainShell.ets，与预览页共用。
  */
 import { common } from '@kit.AbilityKit';
+import { hilog } from '@kit.PerformanceAnalysisKit';
 import { window } from '@kit.ArkUI';
 import { Stage, VaultItem, VaultFolder, CipherDraft } from '../common/Models';
 import { VaultStore } from '../common/VaultStore';
+import { scanSupported } from '../common/ScanSupport';
 import { TotpStore, TotpAccount, parseOtpauth } from '../common/TotpStore';
 import { generateTotpSync, isBase32LengthValid } from '../common/Totp';
 import { scanBarcode, scanCore } from '@kit.ScanKit';
 import { Theme } from '../common/Theme';
-import { copyText } from '../common/Clipboard';
+import { copyText, setAutoClearSeconds } from '../common/Clipboard';
+import { CopyHint } from '../common/CopyHint';
+import { offerPasswordCopy, COPY_EVENT } from '../common/Notify';
+import { bindDialogContext } from '../common/Dialog';
+import { commonEventManager } from '@kit.BasicServicesKit';
 import { Bytes } from '../common/CryptoUtils';
 import { BackBus } from '../common/BackBus';
 import { PrivacyMode } from '../common/PrivacyMode';
@@ -38,6 +44,7 @@ struct Index {
   @State email: string = '';
   @State server: string = '';
   @State autoLockMinutes: number = 5;
+  @State notifyKeepSeconds: number = 30;
   @State sortMode: string = 'name';
   @State bioEnabled: boolean = false;
   /** 全屏布局下状态栏占用的高度（vp），给根容器留出内边距 */
@@ -61,8 +68,12 @@ struct Index {
   private lastActive: number = Date.now();
   private idleTimer: number = -1;
   private bioPrompted: boolean = false;
+  /** 通知点击事件的订阅者（后台直接复制密码，不切前台） */
+  private copySubscriber: commonEventManager.CommonEventSubscriber | null = null;
 
   aboutToAppear(): void {
+    bindDialogContext(this.getUIContext());
+    this.subscribeCopyEvent();
     this.bootstrap();
     this.startIdleWatch();
     this.fpAvailable = Biometric.fingerprintAvailable();
@@ -71,7 +82,15 @@ struct Index {
     this.faceReason = Biometric.faceReason();
   }
 
+  /** 页面隐藏（切到后台 / 退出应用）时：若设置为「退出时」，立即锁定 */
+  onPageHide(): void {
+    if (VaultStore.autoLockMinutes < 0 && VaultStore.unlocked) {
+      this.lock();
+    }
+  }
+
   aboutToDisappear(): void {
+    this.unsubscribeCopyEvent();
     if (this.idleTimer >= 0) {
       clearInterval(this.idleTimer);
       this.idleTimer = -1;
@@ -122,6 +141,8 @@ struct Index {
       await PrivacyMode.init(context);
       this.noScreenshot = PrivacyMode.enabled;
       await VaultStore.init(context);
+      // 把「剪贴板自动清除」设置同步给剪贴板模块（0 = 不清除）
+      setAutoClearSeconds(VaultStore.clipboardClearSeconds);
       this.pullStoreState();
       this.stage = VaultStore.hasAccount ? Stage.Unlock : Stage.Setup;
     } catch (error) {
@@ -140,6 +161,7 @@ struct Index {
     this.email = VaultStore.email;
     this.server = VaultStore.server;
     this.autoLockMinutes = VaultStore.autoLockMinutes;
+    this.notifyKeepSeconds = VaultStore.notifyKeepSeconds;
     this.sortMode = VaultStore.sortMode;
     this.bioFingerprint = VaultStore.bioFingerprint;
     this.bioFace = VaultStore.bioFace;
@@ -163,7 +185,7 @@ struct Index {
       return;
     }
     const label: string = kind === 'face' ? '面容' : '指纹';
-    AlertDialog.show({
+    this.getUIContext().showAlertDialog({
       title: `启用${label}解锁`,
       message: `下次打开可以用${label}直接解锁保险库，不必再输入主密码。`,
       autoCancel: true,
@@ -195,6 +217,69 @@ struct Index {
     });
   }
 
+  /** 订阅通知点击事件：应用在后台时也能直接复制密码，不切前台 */
+  private subscribeCopyEvent(): void {
+    const info: commonEventManager.CommonEventSubscribeInfo = { events: [COPY_EVENT] };
+    commonEventManager.createSubscriber(info, (err, subscriber) => {
+      if (err) {
+        return;
+      }
+      this.copySubscriber = subscriber;
+      commonEventManager.subscribe(subscriber, (e, data) => {
+        if (e) {
+          return;
+        }
+        const params = data.parameters as Record<string, Object> | undefined;
+        if (params === undefined || params === null) {
+          return;
+        }
+        const raw: Object | undefined = params['copyPasswordItemId'];
+        if (typeof raw !== 'string' || (raw as string).length === 0) {
+          return;
+        }
+        this.copyPasswordById(raw as string);
+      });
+    });
+  }
+
+  private unsubscribeCopyEvent(): void {
+    if (this.copySubscriber === null) {
+      return;
+    }
+    commonEventManager.unsubscribe(this.copySubscriber);
+    this.copySubscriber = null;
+  }
+
+  /** 按条目 id 复制密码（通知事件与 AppStorage 两条路径共用） */
+  private copyPasswordById(id: string): void {
+    if (!VaultStore.unlocked) {
+      this.toast('请先解锁保险库，再点通知复制密码');
+      return;
+    }
+    let target: VaultItem | null = null;
+    for (let i = 0; i < VaultStore.items.length; i++) {
+      if (VaultStore.items[i].id === id) {
+        target = VaultStore.items[i];
+        break;
+      }
+    }
+    if (target === null) {
+      this.toast('条目不存在或已删除');
+      return;
+    }
+    if (target.password.length === 0) {
+      this.toast('该条目没有密码');
+      return;
+    }
+    const password: string = target.password;
+    copyText(password).then(() => {
+      this.toast('密码已复制');
+    }).catch((e: Error) => {
+      this.toast(`复制失败：${e.message}`);
+    });
+  }
+
+  /** 点通知「复制密码」：找到对应条目并复制（需已解锁） */
   /** 解锁后加载本地验证器账号（用 userKey 解密） */
   private loadTotpAccounts(): void {
     if (!VaultStore.unlocked) {
@@ -211,6 +296,11 @@ struct Index {
 
   /** 扫码添加验证器：走系统扫码界面，结果应为 otpauth:// 链接 */
   private async scanTotp(): Promise<void> {
+    // 电脑、部分无摄像头平板没有 ScanKit：提前拦下，避免弹英文错误
+    if (!scanSupported()) {
+      this.toast('当前设备不支持扫码，请手动输入密钥');
+      return;
+    }
     const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
     const options: scanBarcode.ScanOptions = {
       scanTypes: [scanCore.ScanType.QR_CODE],
@@ -235,6 +325,61 @@ struct Index {
       throw new Error('这不是有效的 otpauth 二维码');
     }
     await this.saveTotpAccount(parsed);
+  }
+
+  /** 扫码并把原始内容返回给条目编辑器（不在这里落库） */
+  private async scanOtpauthRaw(): Promise<string> {
+    if (!scanSupported()) {
+      throw new Error('当前设备不支持扫码，请手动输入密钥');
+    }
+    const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
+    const options: scanBarcode.ScanOptions = {
+      scanTypes: [scanCore.ScanType.QR_CODE],
+      enableMultiMode: false,
+      enableAlbum: true
+    };
+    try {
+      const result: scanBarcode.ScanResult = await scanBarcode.startScanForResult(context, options);
+      return result.originalValue;
+    } catch (error) {
+      const message: string = (error as Error).message === undefined ? '' : (error as Error).message;
+      const lower: string = message.toLowerCase();
+      if (lower.indexOf('cancel') >= 0 || message.indexOf('取消') >= 0 || lower.indexOf('abort') >= 0) {
+        throw new Error('已取消扫码');
+      }
+      throw new Error(`扫码失败：${message.length > 0 ? message : '未知错误'}`);
+    }
+  }
+
+  /** 保存带验证器密钥的条目后，把账号同步到「验证器」页 */
+  private async syncTotpFromDraft(draft: CipherDraft): Promise<void> {
+    const raw: string = draft.totp.trim();
+    if (raw.length === 0 || !VaultStore.unlocked) {
+      return;
+    }
+    let acc: TotpAccount | null = parseOtpauth(raw);
+    if (acc === null) {
+      // 允许直接填 Base32：用条目名称/用户名补上发行方和账号
+      const cleaned: string = raw.replace(/[\s-]/g, '').toUpperCase();
+      if (!/^[A-Z2-7]+$/.test(cleaned)) {
+        return;
+      }
+      acc = {
+        id: `t${Date.now()}${Math.floor(Math.random() * 1000)}`,
+        issuer: draft.name.trim(),
+        account: draft.username.trim(),
+        secret: cleaned,
+        digits: 6,
+        period: 30
+      };
+    }
+    for (let i = 0; i < TotpStore.accounts.length; i++) {
+      if (TotpStore.accounts[i].secret === acc.secret) {
+        return;
+      }
+    }
+    await TotpStore.add(acc);
+    this.totpAccounts = TotpStore.accounts.slice(0);
   }
 
   /** 手动添加：密钥可以是 Base32，也可以是完整 otpauth 链接 */
@@ -279,7 +424,11 @@ struct Index {
   }
 
   private toast(message: string): void {
-    this.getUIContext().getPromptAction().showToast({ message: message, duration: 2200 });
+    try {
+      this.getUIContext().getPromptAction().showToast({ message: message, duration: 2200 });
+    } catch (e) {
+      // 页面已销毁时 PromptAction 会抛异常，忽略即可
+    }
   }
 
   private async doSync(): Promise<void> {
@@ -479,6 +628,7 @@ struct Index {
           }).catch((e: Error) => this.toast(e.message));
         },
           autoLockMinutes: this.autoLockMinutes,
+          notifyKeepSeconds: this.notifyKeepSeconds,
           sortMode: this.sortMode,
           bioFingerprint: this.bioFingerprint,
           bioFace: this.bioFace,
@@ -499,8 +649,18 @@ struct Index {
           },
           onCopy: (label: string, value: string) => {
             this.touch();
+            // 复制前详情页已写入来源条目，这里只在复制用户名时提供「复制密码」入口
+            const hintItem: string = CopyHint.itemId;
+            const isUserName: boolean = label.indexOf('用户名') >= 0;
+            const shouldOffer: boolean = isUserName && hintItem.length > 0 && !VaultStore.demo;
+            const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
             copyText(value).then(() => {
               this.toast(`${label}已复制`);
+              if (shouldOffer) {
+                offerPasswordCopy(context, hintItem, this.notifyKeepSeconds).catch((e: Error) => {
+                  hilog.error(0x0001, 'LockWarden', 'offer failed: %{public}s', e.message);
+                });
+              }
             }).catch((e: Error) => {
               this.toast(`复制失败：${e.message}`);
             });
@@ -508,9 +668,12 @@ struct Index {
           onSaveDraft: (draft: CipherDraft) => {
             this.touch();
             return VaultStore.saveDraft(draft).then(() => {
+              return this.syncTotpFromDraft(draft);
+            }).then(() => {
               this.pullStoreState();
             });
           },
+          onScanTotpForEditor: () => this.scanOtpauthRaw(),
           onDelete: (item: VaultItem) => {
             this.touch();
             return VaultStore.trashItem(item).then(() => {
@@ -612,6 +775,13 @@ struct Index {
               this.toast(`已永久删除 ${items.length} 项`);
             });
           },
+          onNotifyKeep: (seconds: number) => {
+            VaultStore.setNotifyKeepSeconds(seconds).then(() => {
+              this.notifyKeepSeconds = seconds;
+              const label: string = seconds >= 60 ? `${seconds / 60} 分钟` : `${seconds} 秒`;
+              this.toast(`通知保留 ${label}`);
+            });
+          },
           onAutoLock: (minutes: number) => {
             this.touch();
             VaultStore.setAutoLockMinutes(minutes).then(() => {
@@ -643,6 +813,7 @@ struct Index {
           }
         })
       }
+
     }
     .width('100%')
     .height('100%')
@@ -655,10 +826,10 @@ struct Index {
     try {
       const win: window.Window = await window.getLastWindow(context);
       const area: window.AvoidArea = win.getWindowAvoidArea(window.AvoidAreaType.TYPE_SYSTEM);
-      host.topInset = px2vp(area.topRect.height);
+      host.topInset = host.getUIContext().px2vp(area.topRect.height);
       // 全屏下 TYPE_SYSTEM 的底部高度是 0，底部手势条要用 NAVIGATION_INDICATOR 取
       const nav: window.AvoidArea = win.getWindowAvoidArea(window.AvoidAreaType.TYPE_NAVIGATION_INDICATOR);
-      host.bottomInset = px2vp(nav.bottomRect.height);
+      host.bottomInset = host.getUIContext().px2vp(nav.bottomRect.height);
     } catch (e) {
       host.topInset = 0;
       host.bottomInset = 0;

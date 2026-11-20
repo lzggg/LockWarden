@@ -2,18 +2,29 @@
 import { Theme, syncLabel } from '../common/Theme';
 import { Icons } from '../common/Icons';
 import { ThemeMode } from '../common/ThemeMode';
+import { bundleManager } from '@kit.AbilityKit';
 
-/** 自动锁定可选时长（分钟）：0=从不，最长 6 小时 */
-const LOCK_OPTIONS: number[] = [0, 1, 5, 10, 15, 30, 60, 120, 240, 360];
+/** 「复制密码」通知的保留时长可选值（秒） */
+const NOTIFY_KEEP_OPTIONS: number[] = [30, 40, 50, 60, 120, 300];
 
-function lockLabel(minutes: number): string {
-  if (minutes <= 0) {
-    return '从不';
+function notifyKeepLabel(seconds: number): string {
+  if (seconds < 60) {
+    return `${seconds} 秒`;
   }
-  if (minutes < 60) {
-    return `${minutes} 分钟`;
+  return `${seconds / 60} 分钟`;
+}
+
+function notifyKeepOptions(): SelectOption[] {
+  const list: SelectOption[] = [];
+  for (let i = 0; i < NOTIFY_KEEP_OPTIONS.length; i++) {
+    list.push({ value: notifyKeepLabel(NOTIFY_KEEP_OPTIONS[i]) });
   }
-  return `${minutes / 60} 小时`;
+  return list;
+}
+
+function notifyKeepIndex(seconds: number): number {
+  const found: number = NOTIFY_KEEP_OPTIONS.indexOf(seconds);
+  return found < 0 ? 0 : found;
 }
 
 @Component
@@ -24,18 +35,22 @@ struct SettingsInfoRow {
   build() {
     Row() {
       // 左右两侧统一风格：同字号、同字重、同颜色
+      // 左侧标签固定宽度不参与压缩，右侧值吃掉剩余空间，超长时换行（最多 2 行）而不是被截断
       Text(this.label)
         .fontSize(Theme.FONT_BODY)
         .fontWeight(FontWeight.Medium)
         .fontColor(Theme.TEXT_PRIMARY)
-      Blank()
+        .flexShrink(0)
       Text(this.value)
         .fontSize(Theme.FONT_BODY)
         .fontWeight(FontWeight.Medium)
         .fontColor(Theme.TEXT_PRIMARY)
-        .maxLines(1)
+        .layoutWeight(1)
+        .textAlign(TextAlign.End)
+        .maxLines(2)
+        .wordBreak(WordBreak.BREAK_ALL)
         .textOverflow({ overflow: TextOverflow.Ellipsis })
-        .constraintSize({ maxWidth: '62%' })
+        .margin({ left: 12 })
     }
     .width('100%')
     .padding({ top: 14, bottom: 14 })
@@ -87,18 +102,28 @@ export struct SettingsView {
   @Prop demo: boolean = false;
   @Prop localMode: boolean = false;
 
-  @Prop autoLockMinutes: number = 5;
+  /** 「复制密码」通知的保留秒数 */
+  @Prop notifyKeepSeconds: number = 30;
   @Prop trashCount: number = 0;
   /** 当前外观模式（跟随系统 / 明亮 / 深色） */
   @State themeMode: string = ThemeMode.mode;
   /** 驱动"上次同步"随时间和保险库页一致地刷新 */
   @State tick: number = 0;
+  /** 应用版本号（取自包信息，随打包自动变化） */
+  @State appVersion: string = '';
   private clockTimer: number = -1;
 
   aboutToAppear(): void {
     this.clockTimer = setInterval(() => {
       this.tick = this.tick + 1;
     }, 30000);
+    bundleManager.getBundleInfoForSelf(bundleManager.BundleFlag.GET_BUNDLE_INFO_DEFAULT)
+      .then((info: bundleManager.BundleInfo) => {
+        this.appVersion = info.versionName;
+      })
+      .catch(() => {
+        this.appVersion = '';
+      });
   }
 
   aboutToDisappear(): void {
@@ -125,32 +150,14 @@ export struct SettingsView {
   };
   onOpenFolders: () => void = () => {
   };
-  onAutoLock: (minutes: number) => void = () => {
+  onNotifyKeep: (seconds: number) => void = () => {
   };
   /** 打开安全子页面（含生物识别） */
   onOpenBiometric: () => void = () => {
   };
 
   /** 下拉选项文案 */
-  private lockOptions(): SelectOption[] {
-    const options: SelectOption[] = [];
-    for (let i = 0; i < LOCK_OPTIONS.length; i++) {
-      const option: SelectOption = { value: lockLabel(LOCK_OPTIONS[i]) };
-      options.push(option);
-    }
-    return options;
-  }
-
   /** 当前取值在下拉里的下标 */
-  private lockIndex(): number {
-    for (let i = 0; i < LOCK_OPTIONS.length; i++) {
-      if (LOCK_OPTIONS[i] === this.autoLockMinutes) {
-        return i;
-      }
-    }
-    return 0;
-  }
-
   build() {
     Column() {
       Row() {
@@ -225,26 +232,36 @@ export struct SettingsView {
 
             Divider().color(Theme.DIVIDER).margin({ left: 16, right: 16 })
 
-            Row() {
-              Text('自动锁定')
-                .fontSize(Theme.FONT_BODY)
-                .fontColor(Theme.TEXT_PRIMARY)
-              Blank()
-              Select(this.lockOptions())
-                .selected(this.lockIndex())
-                .value(lockLabel(this.autoLockMinutes))
+            Row({ space: 12 }) {
+              Column({ space: 2 }) {
+                Text('通知保留')
+                  .fontSize(Theme.FONT_BODY)
+                  .fontWeight(FontWeight.Medium)
+                  .fontColor(Theme.TEXT_PRIMARY)
+                  .width('100%')
+                Text('复制用户名后通知保留的时间')
+                  .fontSize(12)
+                  .fontWeight(FontWeight.Medium)
+                  .fontColor(Theme.TEXT_HINT)
+                  .width('100%')
+              }
+              .layoutWeight(1)
+              .alignItems(HorizontalAlign.Start)
+              Select(notifyKeepOptions())
+                .selected(notifyKeepIndex(this.notifyKeepSeconds))
+                .value(notifyKeepLabel(this.notifyKeepSeconds))
                 .font({ size: 14 })
                 .fontColor(Theme.PRIMARY)
-        .font({ size: Theme.FONT_BODY, weight: FontWeight.Medium })
+                .font({ size: Theme.FONT_BODY, weight: FontWeight.Medium })
                 .optionFont({ size: 14 })
                 .selectedOptionFont({ size: 14 })
                 .backgroundColor(Color.Transparent)
                 .onSelect((index: number) => {
-                  this.onAutoLock(LOCK_OPTIONS[index]);
+                  this.onNotifyKeep(NOTIFY_KEEP_OPTIONS[index]);
                 })
             }
             .width('100%')
-            .height(44)
+            .padding({ top: 12, bottom: 12 })
           }
           .width('100%')
           .padding({ left: 16, right: 8 })
@@ -291,10 +308,18 @@ export struct SettingsView {
           .backgroundColor(Theme.CARD)
 
           Column({ space: 6 }) {
-            Text('LockWarden')
-              .fontSize(Theme.FONT_CAPTION)
-              .fontWeight(FontWeight.Medium)
-              .fontColor(Theme.TEXT_SECONDARY)
+            Row({ space: 8 }) {
+              Text('LockWarden')
+                .fontSize(Theme.FONT_CAPTION)
+                .fontWeight(FontWeight.Medium)
+                .fontColor(Theme.TEXT_SECONDARY)
+              if (this.appVersion.length > 0) {
+                Text(`v${this.appVersion}`)
+                  .fontSize(Theme.FONT_CAPTION)
+                  .fontWeight(FontWeight.Medium)
+                  .fontColor(Theme.TEXT_HINT)
+              }
+            }
             Text('兼容 Bitwarden / Vaultwarden 协议的自建密码服务器客户端')
               .fontSize(12)
               .fontWeight(FontWeight.Medium)

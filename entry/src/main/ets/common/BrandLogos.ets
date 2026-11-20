@@ -75,6 +75,48 @@ export function matchBrand(name: string): string {
   return '';
 }
 
+
+/** 按网址（域名）匹配内置品牌；匹配不到返回 '' */
+export function matchBrandByUri(uri: string): string {
+  let text: string = uri.trim().toLowerCase();
+  if (text.length === 0) {
+    return '';
+  }
+  const scheme: number = text.indexOf('://');
+  if (scheme >= 0) {
+    text = text.substring(scheme + 3);
+  }
+  const slash: number = text.indexOf('/');
+  if (slash >= 0) {
+    text = text.substring(0, slash);
+  }
+  const colon: number = text.indexOf(':');
+  if (colon >= 0) {
+    text = text.substring(0, colon);
+  }
+  if (text.startsWith('www.')) {
+    text = text.substring(4);
+  }
+  if (text.length === 0) {
+    return '';
+  }
+  for (let i = 0; i < BRAND_LOGOS.length; i++) {
+    const key: string = BRAND_LOGOS[i].key.toLowerCase();
+    if (text.indexOf(key) >= 0) {
+      return BRAND_LOGOS[i].key;
+    }
+    const aliases: string[] = BRAND_LOGOS[i].aliases;
+    for (let k = 0; k < aliases.length; k++) {
+      const alias: string = aliases[k].toLowerCase();
+      // 别名里可能有中文，域名只比 ASCII
+      if (/^[a-z0-9.-]+$/.test(alias) && alias.length >= 3 && text.indexOf(alias) >= 0) {
+        return BRAND_LOGOS[i].key;
+      }
+    }
+  }
+  return '';
+}
+
 export function logoPresetValue(key: string): string {
   return `${LOGO_VALUE_PREFIX}preset:${key}`;
 }

@@ -1,8 +1,8 @@
 # VaultWarden for HarmonyOS
 
 用 **ArkTS / ArkUI** 为华为鸿蒙（HarmonyOS，Stage 模型，SDK 26.0.0 / API 26）编写的
-**Vaultwarden 客户端**，包名 `com.example.lockwarden`，在 DevEco Studio 中可直接编译；
-签名材料请按 [5.2 节](#52-签名本地配置不入库) 在本地配好，之后即可部署到模拟器或真机。
+**Vaultwarden 客户端**，包名 `com.example.lockwarden`，在 DevEco Studio 中可直接编译、
+自动签名、部署到模拟器或真机。
 
 > 先澄清一个前提：**Vaultwarden 本身是服务端，不能被"编译成鸿蒙 App"**（见第 1 节）。
 > 本仓库交付的是与之配套的鸿蒙客户端。
@@ -139,12 +139,9 @@ LockWarden/
 │  │     ├─ VaultView.ets  DetailView.ets
 │  │     ├─ CipherEditor.ets        # 新建/编辑（四种类型、文件夹、收藏、自定义字段）
 │  │     ├─ TrashView.ets           # 回收站（恢复 / 彻底删除）
-│  │     └─ GeneratorView.ets  SettingsView.ets
+│  │     └─ GeneratorView.ets  SendView.ets  SettingsView.ets
 │  └─ resources/
-├─ docs/signing.example.json5        # 签名配置模板（真实证书/口令不进仓库）
-├─ tools/build.ps1                   # 命令行构建（等价 DevEco 的 Build Hap）
-├─ tools/fix-signing.ps1             # 本地注入 / 还原签名配置
-└─ .gitignore                        # 排除签名材料、构建产物与截图
+└─ tools/build.ps1                  # 命令行构建（等价 DevEco 的 Build Hap）
 ```
 
 设计上刻意让 **view 层不直接依赖网络/存储/加密**：数据与动作（复制、随机数、保存）
@@ -187,39 +184,32 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\build.ps1
 自动把 DevEco 的 JBR、Node 加入 PATH 并设置 `DEVECO_SDK_HOME`。
 已验证：DevEco Studio 26.0.0.865（DS-261）、SDK 26.0.0 / API 26、hvigor 6.26.9。
 
-### 5.2 签名（本地配置，不入库）
+### 5.2 签名（已配置好）
 
-> 仓库里 **不含任何签名材料**：证书、`.p12` 密钥库、Profile 和口令都是本机凭据，
-> 一旦提交就等于把签名权交出去。`build-profile.json5` 里的 `signingConfigs` 是空数组。
+工程使用 **DevEco Studio 的「自动签名」**，`build-profile.json5` 里已经写入了签名配置：
 
-拿到仓库后，二选一配好本机签名：
-
-**做法 A：让 DevEco 自动签名（最省事）**
-
-`File → Project Structure → Signing Configs` → 勾选 `Automatically generate signature` → Apply。
-DevEco 登录华为账号后会生成 cert / `.p12` / `.p7b` 并写回 `build-profile.json5`（**不要提交这一步的改动**）。
-
-**做法 B：命令行注入**
-
-```powershell
-# 1) 复制模板，填入自己的证书路径与口令
-copy docs\signing.example.json5 signing.local.json5
-# 2) 写入 build-profile.json5
-powershell -File tools\fix-signing.ps1
-# 3) 提交前把凭据再摘掉
-powershell -File tools\fix-signing.ps1 -Restore
+```json5
+"signingConfigs": [{
+  "name": "default",
+  "type": "HarmonyOS",
+  "material": {
+    "certpath": "%USERPROFILE%\\.ohos\\config\\default_VaultWardenHarmony_*.cer",
+    "storeFile": "%USERPROFILE%\\.ohos\\config\\default_VaultWardenHarmony_*.p12",
+    "profile":  "%USERPROFILE%\\.ohos\\config\\default_VaultWardenHarmony_*.p7b",
+    "keyAlias": "debugKey",
+    "signAlg": "SHA256withECDSA"
+  }
+}]
 ```
-
-`signing.local.json5` 已被 `.gitignore` 排除；`build-profile.json5` 本身要入库，
-所以提交前务必用 `-Restore` 把签名段摘空（之后再按做法 A/B 加回来）。
-模板里各字段的含义见 `docs/signing.example.json5`。
 
 这些证书/profile 由 DevEco 登录华为账号后签发，**只对已登记的调试设备有效**，
 这也是华为真机唯一接受的签名方式（本地自签证书真机一律拒绝）。
 
 > 改过包名之后必须让 DevEco 重新签发一次 profile：`File → Project Structure → Signing Configs`
-> 取消勾选再重新勾选 `Automatically generate signature`，否则安装会报 9568322 / 9568423。
-> 真机报错时 `tools/install_tablet.ps1` 会打印当前设备 UDID 与 Profile 里登记的 ID 供比对。
+> 取消勾选再重新勾选 `Automatically generate signature`。
+> 本次已确认：改包名后自动签名在 20:19 重建了 cert/profile，
+> 构建产物 `hap-sign-tool verify-app` 返回 **Verify success**，包内 bundleName 为
+> `com.example.lockwarden`。
 
 如果不想用 IDE，也可以把 AGC 签发的证书/profile 导出后填入同一段配置，用 5.1 的命令行构建。
 
@@ -256,9 +246,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\build.ps1 -Clean -Rele
 注意事项：
 
 - `-Release` 会启用压缩与混淆，包里体积明显小于 debug（约 0.75 MB vs 1.7 MB）；
-- 目前 `build-profile.json5` 里**没有签名材料**（见 5.2）。默认产出的 HAP 未签名，只能自己调试；
-  要装到真机需先按 5.2 配好调试证书，要上传 AppGallery 则必须先在本机配好
-  「发布证书 + 发布 Profile」再执行上面的 `-Release -App`；
+- 目前 `build-profile.json5` 里的签名材料是**调试证书**（`keyAlias: debugKey`、debug Profile），
+  只能装到 Profile 里登记过的设备，**不能上传 AppGallery**。上传前必须在 AGC 申请
+  「发布证书 + 发布 Profile」，并在 DevEco 的 Signing Configs 里替换；
 - 每次提交审核 `versionCode` 必须比上一版大，`versionName` 建议同步语义化版本；
 - 审核前自查：`hdc install` 到真机跑一遍首次连接、登录、解锁、新建/编辑/删除、回收站、文件夹、验证器、深浅色切换。
 
@@ -291,25 +281,25 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\build.ps1 -Clean -Rele
 
 ## 8. 验证情况
 
-> 下面记录的是开发机上的验证过程。仓库只包含客户端代码，验证用的 mock 服务端、
-> 独立实现的校验脚本和截图都在仓库之外，因此路径类引用只作说明，clone 后并不存在。
-
 - **编译**：`hvigor assembleHap` 通过，产出 `entry-default-signed.hap`（约 1.1 MB）。
 - **签名**：`hap-sign-tool verify-app` → `Verify success`（摘要校验 + 证书链 + profile 全部通过）。
-- **真机端到端**：已安装并运行在 **HarmonyOS API 26 的华为真机** 上，
-  对着契约一致的 mock 服务端（Vaultwarden 接口的本地桩，用 `hdc rport` 反向映射）跑通：
+- **真机端到端**：已安装并运行在 **HUAWEI ALN-AL00（HarmonyOS API 26）** 上，
+  对着契约一致的 mock 服务端（`../verify/mock-vaultwarden.mjs`，用 `hdc rport` 反向映射）跑通：
   登录 → 同步 3 条种子条目 → 收藏（`/partial` 200）→ 编辑保存（`PUT /api/ciphers/<id>` 200）
   → 删除进回收站（`/delete` 200）→ 回收站恢复（`/restore` 200），每步都伴随一次重新同步。
   另验证了：生成器复选框动画与"至少保留一种字符"拦截、筛选 chip、密码明码切换、自动锁定选项。
+  截图见 `../docs/screenshot-*.jpeg`、`../docs/detail-favorited.jpeg`、`../docs/trash-view.jpeg`。
 - **生物识别**：已验证 HUKS 包裹/解包往返（真机自检：64 字节密钥 → 133 字符密文 → 解出后逐字节一致）；
   已验证在真机上能拉起系统认证面板（"请验证指纹"），且设置页在未启用时开关可用、
   不可用时会显示具体原因（未录入 / 硬件不支持 / 错误码）。
-  **一次完整的"按指纹→解锁"仍需在已录入指纹的设备上点一次确认**（模拟器无法注入指纹输入）。
-- **协议/密码学**：另用 Node 写了第二套独立实现，对同一个 mock 服务端跑通
-  **8/8** 全链路（PBKDF2 600k 迭代实测 ~75 ms）；该验证器经变异测试证明严格。
+  **一次完整的"按指纹→解锁"仍需你在已录入指纹的设备上点一次确认**（我无法模拟指纹输入）。
+- **协议/密码学**：`../verify/` 用 Node 写了第二套独立实现，对同一个 mock 服务端跑通
+  **8/8** 全链路（PBKDF2 600k 迭代实测 ~75 ms），详见 `../verify/report.txt`；
+  该验证器经变异测试证明严格。
 - **TOTP**：纯 ArkTS 的 SHA-1/HMAC 实现与 `node:crypto` 逐项对照，
-  RFC 6238 向量 + 20 组随机用例全部通过。
-- **密码生成**：字符集、长度钳制（5–64）、默认参数、随机源生效与可复现性共 11 项断言全部通过。
+  RFC 6238 向量 + 20 组随机用例全部通过（`../verify/totp-check.mjs`）。
+- **密码生成**：字符集、长度钳制（5–64）、默认参数、随机源生效与可复现性共 11 项断言全部通过
+  （`../verify/password-gen-check.mjs`）。
 
 ### 开发注意（已踩过的坑）
 1. **不要用 `@Builder` 的按值参数承载状态**。`@Builder` 参数按值传递时不会触发刷新，
@@ -398,15 +388,15 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\build.ps1 -Clean -Rele
 
 ## 9. 来源与许可
 
-- 协议依据：`dani-garcia/vaultwarden`（AGPL-3.0），开发时仅本地 clone 供比对接口，
-  **未随本仓库分发**；客户端代码为独立实现，未复制其源码。
+- 协议依据：`dani-garcia/vaultwarden`（AGPL-3.0），仅放在 `third_party/` 供比对接口，
+  客户端代码为独立实现，未复制其源码。
 - 界面参考 Bitwarden Android 的**布局结构**，图标使用鸿蒙系统矢量符号，不复制其美术资源。
 
 ### 字体策略（结论）
 
 应用**不设置任何 `fontFamily`**，一律使用系统默认字体（未改主题时即 HarmonyOS Sans，开源可免费商用）。
 
-实测结论（HarmonyOS 26 真机，系统主题字体为「书宋-简」）：
+实测结论（HarmonyOS 26 / Mate 60 Pro，系统主题字体为「书宋-简」）：
 
 - `getSystemFontList()` 能读到主题字体（`书宋-简`，`/system/fonts/ShuS-SC.ttf`）；
 - 但 `Text.fontFamily('书宋-简')` **不生效**，`registerFont({familySrc: 'file:///system/fonts/...'})` 后引用同样不生效；

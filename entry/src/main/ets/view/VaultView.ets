@@ -8,7 +8,7 @@ import { confirmDanger } from '../common/Dialog';
 import { VaultItem, VaultFolder } from '../common/Models';
 import { Icons, typeColor, typeSymbol } from '../common/Icons';
 import { SelectionBridge } from '../common/SelectionBridge';
-import { BrandAvatar, logoRawOf } from './LogoBits';
+import { BrandAvatar, logoRawFor } from './LogoBits';
 import { SwipeActions } from './SwipeActions';
 import { mediaquery } from '@kit.ArkUI';
 import { Responsive } from '../common/Responsive';
@@ -358,7 +358,7 @@ export struct VaultView {
 
       // 圆形类型头像：Bitwarden 的条目图标位
       BrandAvatar({
-        raw: logoRawOf(item.fields),
+        raw: logoRawFor(item.uri, item.name),
         name: item.name,
         fallbackIcon: typeSymbol(item.type),
         fallbackColor: typeColor(item.type),
@@ -409,7 +409,8 @@ export struct VaultView {
   }
 
   build() {
-    Stack({ alignContent: Alignment.BottomEnd }) {
+    Row() {
+      Stack({ alignContent: Alignment.BottomEnd }) {
       Column() {
         // 标题栏
         Row({ space: 16 }) {
@@ -647,9 +648,15 @@ export struct VaultView {
       .margin({ right: 20, bottom: 24 })
       .shadow({ radius: 14, color: '#330A59F7', offsetY: 6 })
       .onClick(() => this.onAdd())
+      }
+      .width('100%')
+      .height('100%')
+      // 电脑/大屏窗口：内容最宽 1180，超出部分左右留白，避免一行拉到屏幕边缘
+      .constraintSize({ maxWidth: 1180 })
     }
     .width('100%')
     .height('100%')
+    .justifyContent(FlexAlign.Center)
     .backgroundColor(Theme.BACKGROUND)
   }
 }

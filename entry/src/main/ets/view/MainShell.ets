@@ -67,6 +67,7 @@ export struct MainShell {
   @Prop demo: boolean = false;
   @Prop localMode: boolean = false;
   @Prop autoLockMinutes: number = 5;
+  @Prop notifyKeepSeconds: number = 30;
   @Prop sortMode: string = 'name';
   @Prop bioFingerprint: boolean = false;
   @Prop bioFace: boolean = false;
@@ -110,11 +111,14 @@ export struct MainShell {
   };
   onAutoLock: (minutes: number) => void = () => {
   };
+  onNotifyKeep: (seconds: number) => void = () => {
+  };
   onSortChange: (mode: string) => void = () => {
   };
   onToggleBiometric: (kind: string, enable: boolean) => void = () => {
   };
   onCreateFolder: (name: string) => Promise<string> = async () => '';
+  onScanTotpForEditor: () => Promise<string> = async () => '';
   onRenameFolder: (folder: VaultFolder, name: string) => Promise<void> = async () => {
   };
   /** 数据被外部改动（如导入）后刷新页面状态 */
@@ -395,7 +399,7 @@ export struct MainShell {
               itemCount: this.items.length,
               demo: this.demo,
               localMode: this.localMode,
-              autoLockMinutes: this.autoLockMinutes,
+              notifyKeepSeconds: this.notifyKeepSeconds,
               trashCount: this.trash.length,
               onSync: () => this.onSync(),
               onLock: () => this.onLock(),
@@ -408,7 +412,7 @@ export struct MainShell {
               onOpenBiometric: () => {
                 this.showBiometric = true;
               },
-              onAutoLock: (minutes: number) => this.onAutoLock(minutes),
+              onNotifyKeep: (seconds: number) => this.onNotifyKeep(seconds),
             })
             }
             .width('100%')
@@ -455,7 +459,8 @@ export struct MainShell {
               this.editing = null;
               this.selected = null;
             }),
-            onCreateFolder: (name: string) => this.onCreateFolder(name)
+            onCreateFolder: (name: string) => this.onCreateFolder(name),
+            onScanTotpForEditor: () => this.onScanTotpForEditor()
           })
           }
           .width('100%')
@@ -541,6 +546,8 @@ export struct MainShell {
             bioRev: this.bioRev,
             noScreenshot: this.noScreenshot,
             onToggleNoScreenshot: (on: boolean) => this.onToggleNoScreenshot(on),
+            autoLockMinutes: this.autoLockMinutes,
+            onAutoLock: (minutes: number) => this.onAutoLock(minutes),
             onBack: () => {
               this.showBiometric = false;
             },

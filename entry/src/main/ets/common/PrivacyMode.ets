@@ -34,8 +34,12 @@ export class PrivacyMode {
     PrivacyMode.enabled = enabled;
     PrivacyMode.apply();
     if (PrivacyMode.prefs !== null) {
-      await PrivacyMode.prefs.put(KEY_NO_SCREENSHOT, enabled);
-      await PrivacyMode.prefs.flush();
+      try {
+        await PrivacyMode.prefs.put(KEY_NO_SCREENSHOT, enabled);
+        await PrivacyMode.prefs.flush();
+      } catch (e) {
+        // 持久化失败不影响本次开关生效
+      }
     }
   }
 
