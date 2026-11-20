@@ -1,0 +1,24 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "LockWarden 鸿蒙客户端"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "LockWarden 客户端主入口"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "LockWarden"
+    },
+    {
+      "name": "biometric_reason",
+      "value": "用于使用面容或指纹解锁保险库"
+    },
+    {
+      "name": "privacy_reason",
+      "value": "开启后系统截屏与录屏将显示为黑屏，保护保险库内容"
+    }
+  ]
+}
