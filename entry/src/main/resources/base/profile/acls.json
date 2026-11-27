@@ -1,0 +1,7 @@
+{
+  "acls": {
+    "allowed-acls": [
+      "ohos.permission.USE_FLOAT_BALL"
+    ]
+  }
+}
