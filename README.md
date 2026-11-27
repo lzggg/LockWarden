@@ -190,23 +190,27 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\build.ps1
 自动把 DevEco 的 JBR、Node 加入 PATH 并设置 `DEVECO_SDK_HOME`。
 已验证：DevEco Studio 26.0.0.865（DS-261）、SDK 26.0.0 / API 26、hvigor 6.26.9。
 
-### 5.2 签名（已配置好）
+### 5.2 签名（本地配置，不入库）
 
-`build-profile.json5` 里已经有两套签名配置：
+仓库中的 `build-profile.json5` 是脱敏模板：`signingConfigs` 为空，不包含证书、Profile、密钥库或口令。
 
-| 配置 | 用途 | 证书 / Profile |
+签名材料只保留在本地，分两套：
+
+| 配置 | 用途 | 要求 |
 |---|---|---|
-| `default` | 调试安装、`hdc install` | `Key/debug/LockWarden_ACL_Debug.cer`、`Key/debug/Profile_LockWarden_20261123debugDebug.p7b` |
-| `release` | 上架 AGC | `Key/LockWarden.cer`、`Key/Profile_LockWarden_20261123Release.p7b` |
+| `default` | 调试安装、`hdc install` | 调试证书 + 调试 Profile；Profile 登记目标设备 UDID，并包含 `ohos.permission.USE_FLOAT_BALL` ACL |
+| `release` | 上架 AGC | 发布证书 + 发布 Profile；包含 `USE_FLOAT_BALL` ACL |
 
-调试配置使用 `Key/debug/LockWarden.p12`，发布配置使用 `Key/LockWarden.p12`。
+配置方式：
 
-- 调试 Profile 已登记模拟器/真机 UDID，并包含 `ohos.permission.USE_FLOAT_BALL` 的 ACL；
-- 发布 Profile 包含 `USE_FLOAT_BALL` 的 ACL，用于正式上架包；
-- `build-profile.json5` 里的密码字段是 DevEco 加密后的字符串，由本机 DevEco/hvigor 解密，不是明文密码；
-- 换机器或换签名材料后，在 DevEco 的 `File → Project Structure → Signing Configs` 重新选择 p12、证书和 Profile 即可。
+1. DevEco：`File → Project Structure → Signing Configs`，选择自己的 p12、证书、Profile。
+2. 命令行：复制 `docs/signing.example.json5` 为 `signing.local.json5`（已被 `.gitignore` 排除），填入本地路径，再把 `signingConfigs` 合并到 `build-profile.json5`。
 
-> 如果 `hdc install` 报 `9568322`，说明当前安装包用了发布证书。调试安装请使用 `default` 产品（`tools/build.ps1` 不带 `-Release`）。
+注意：
+
+- `build-profile.json5` 里的密码字段即使由 DevEco 加密，也属于本机凭据，不要提交；
+- 换机器、换证书或换 Profile 后重新选择一次；
+- `hdc install` 报 `9568322` 通常是用发布证书装了调试包，调试安装请使用 `default` 产品（`tools/build.ps1` 不带 `-Release`）。
 
 ### 5.3 在 DevEco 里预览（不需要设备）
 
