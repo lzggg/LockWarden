@@ -1,0 +1,44 @@
+// 签名配置模板 —— 不要提交真实凭据。
+//
+// 用法：
+//   1) 复制本文件为 signing.local.json5（已在 .gitignore 中排除）；
+//   2) 把下面所有 <...> 占位符换成你自己的值：
+//        - 证书/.p12/.p7b 可放在任意本地目录，用正斜杠写绝对路径；
+//        - keyPassword / storePassword 是 DevEco Studio 生成的加密口令串，
+//          从 IDE 自动生成后写回的 build-profile.json5 里复制即可；
+//   3) 在 DevEco Studio 的 Project Structure -> Signing Configs 中填入对应值，
+//      或手动把 signingConfigs 合并进 build-profile.json5。
+//
+// 说明：调试证书（debugKey）只对签名 Profile 里登记过的设备有效，
+//       真机安装报 9568322 / 9568423 时，在 DevEco 的 Signing Configs 里重新登记设备。
+
+{
+  "signingConfigs": [
+    {
+      "name": "default",
+      "type": "HarmonyOS",
+      "material": {
+        "certpath": "<项目证书目录>/default_<项目名>_<哈希>.cer",
+        "keyAlias": "debugKey",
+        "keyPassword": "<DevEco 生成的 keyPassword>",
+        "profile": "<项目证书目录>/default_<项目名>_<哈希>.p7b",
+        "signAlg": "SHA256withECDSA",
+        "storeFile": "<项目证书目录>/default_<项目名>_<哈希>.p12",
+        "storePassword": "<DevEco 生成的 storePassword>"
+      }
+    },
+    {
+      "name": "release",
+      "type": "HarmonyOS",
+      "material": {
+        "certpath": "<发布证书目录>/<你的应用>.cer",
+        "keyAlias": "<发布密钥别名>",
+        "keyPassword": "<发布 keyPassword>",
+        "profile": "<发布证书目录>/<你的应用>Release.p7b",
+        "signAlg": "SHA256withECDSA",
+        "storeFile": "<发布证书目录>/<你的应用>.p12",
+        "storePassword": "<发布 storePassword>"
+      }
+    }
+  ]
+}

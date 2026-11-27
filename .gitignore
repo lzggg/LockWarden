@@ -1,0 +1,41 @@
+# ---- 签名材料：绝不入库 ----
+*.p12
+*.cer
+*.p7b
+*.jks
+*.keystore
+signing.local.json5
+
+# ---- 本机配置（DevEco 会写入本机路径）----
+local.properties
+.idea/
+*.iml
+.DS_Store
+Thumbs.db
+
+# ---- 构建产物 ----
+/dist/
+/build/
+/entry/build/
+/entry/.preview/
+/build-profile.json5.bak
+.hvigor/
+hvigor/hvigor-cache/
+.cxx/
+oh_modules/
+node_modules/
+*.hap
+*.app
+*.hsp
+*.log
+
+# ---- 工具生成的图片（需要发布时再手动加回）----
+/docs/lw-*.png
+/docs/app-icon.png
+/docs/icon-sizes.png
+/docs/tablet-launch.jpeg
+/docs/store-promo/
+
+# ---- 发布说明/更新日志：仅本地保留，不上传 ----
+/CHANGELOG.md
+/新增功能.txt
