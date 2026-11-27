@@ -1,0 +1,8 @@
+{
+  "modelVersion": "6.0.0",
+  "name": "lockwarden",
+  "version": "1.0.0",
+  "description": "VaultWarden client for HarmonyOS",
+  "dependencies": {},
+  "devDependencies": {}
+}
